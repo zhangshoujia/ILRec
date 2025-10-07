@@ -1,0 +1,85 @@
+optimizer:
+  name: adam
+  lr: 1.0e-3
+  weight_decay: 0
+
+train:
+  epoch: 3000
+  batch_size: 4096
+  save_model: true
+  loss: pairwise
+  test_step: 2
+  reproducible: true
+  seed: 2023
+  patience: 10
+  log_loss: true
+
+test:
+  metrics: [recall, ndcg]
+  k: [5, 10, 20]
+  batch_size: 1024
+
+data:
+  type: general_cf
+  name: amazon
+
+model:
+  name: lightgcn_pro
+  keep_rate: 0.8
+  embedding_size: 32
+
+  # 基础参数
+  layer_num: 3
+  reg_weight: 0.0
+
+  # 语义图构建参数
+  semantic_topk: 5
+  sup_cl_weight: 0.1
+  cv_sup_cl_weight: 0.1
+  emb_cl_weight: 1e-3
+  contrast_temperature: 0.1
+  sup_contrast_temperature: 0.25
+  # 调试开关
+  debug_log: false
+  max_debug_steps: 2
+
+  # 数据集覆盖
+  amazon:
+    layer_num: 3
+    semantic_topk: 5
+    emb_cl_weight: 1e-3
+    contrast_temperature: 0.1
+    sup_contrast_temperature: 0.25
+    sup_cl_weight: 0.1
+    cv_sup_cl_weight: 0.1
+    reg_weight: 1e-7
+    debug_log: true
+    max_debug_steps: 3
+
+  # for toy
+  toy:
+    layer_num: 3
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 0.2
+    cv_sup_cl_weight: 0.2
+    contrast_temperature: 0.2
+    emb_cl_weight: 0.5
+    reg_weight: 0.0001
+
+  yelp:
+    layer_num: 3
+    sup_contrast_temperature: 0.25
+    sup_cl_weight: 0.1
+    cv_sup_cl_weight: 0.05
+    contrast_temperature: 0.1
+    emb_cl_weight: 0.005
+    reg_weight: 1e-07
+
+  steam:
+    layer_num: 3
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 0.1
+    cv_sup_cl_weight: 0.1
+    contrast_temperature: 2.0
+    emb_cl_weight: 0.05
+    reg_weight: 1e-09

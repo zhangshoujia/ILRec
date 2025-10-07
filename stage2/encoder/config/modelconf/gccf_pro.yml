@@ -1,0 +1,78 @@
+optimizer:
+  name: adam
+  lr: 1.0e-3
+  weight_decay: 0
+
+train:
+  epoch: 3000
+  batch_size: 4096
+  save_model: true
+  log_loss: true
+  loss: pairwise
+  test_step: 3
+  reproducible: true
+  seed: 2023
+  patience: 5
+
+test:
+  metrics: [recall, ndcg]
+  k: [5, 10, 20]
+  batch_size: 1024
+
+data:
+  type: general_cf
+  name: amazon
+
+
+model:
+  name: gccf_pro
+  # general parameters here
+  keep_rate: 0.8
+  embedding_size: 32
+
+  # dataset-specific parameters here
+  layer_num: 3
+  reg_weight: 1.0e-6
+  sup_cl_weight: 0.1
+  cv_sup_cl_weight: 0.1
+  emb_cl_weight: 1e-3
+  contrast_temperature: 0.1
+
+  semantic_topk: 5
+  # for amazon
+  amazon:
+    layer_num: 2
+    sup_contrast_temperature: 0.25
+    sup_cl_weight: 0.1
+    cv_sup_cl_weight: 0.1
+    contrast_temperature: 0.2
+    emb_cl_weight: 0.0005
+    reg_weight: 0.0001
+  # for toy
+  toy:
+    layer_num: 2
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 0.2
+    cv_sup_cl_weight: 0.2
+    contrast_temperature: 0.02
+    emb_cl_weight: 0.005
+    reg_weight: 1e-05
+  # for yelp
+  yelp:
+    layer_num: 2
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 1.0
+    cv_sup_cl_weight: 0.2
+    contrast_temperature: 0.25
+    emb_cl_weight: 0.01
+    reg_weight: 0.0001
+  # for steam
+  steam:
+    layer_num: 2
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 0.05
+    cv_sup_cl_weight: 0.1
+    contrast_temperature: 0.05
+    emb_cl_weight: 0.0005
+    reg_weight: 1e-05
+
