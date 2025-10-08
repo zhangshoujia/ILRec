@@ -113,7 +113,8 @@ pip install -r stage2/requirements.txt
 
 ## 2. Data 📚
 
-We evaluate on **Book**, **Yelp**, **Steam**, and **Toy** datasets. [datasets](https://drive.google.com/file/d/16QOidCeeoJZxRoBsBNEP_TkvyQ2aCbIQ/view?usp=sharing) 
+We evaluate on **Book**, **Yelp**, **Steam**, and **Toy** [datasets](https://drive.google.com/file/d/16QOidCeeoJZxRoBsBNEP_TkvyQ2aCbIQ/view?usp=sharing).
+
 Stage‑2 expects sparse matrices and text resources:
 
 ```
@@ -253,7 +254,7 @@ python encoder/train_encoder.py --model lightgcn_pro --dataset book --cuda 0
 
 ### Stage‑1 (ICFT) 
 
-- 🧠 **Backbone:** LLaMA‑style encoder (see `stage1/llm/llama.py`)
+- 🧠 **Backbone:** LLaMA encoder (see `stage1/llm/llama.py`)
 - 🏋️ **Trainables:** LoRA adapters (`stage1/llm/lora_cls.py`), soft prompts, lightweight projection heads
 - 🧩 **Losses:** interaction‑aware contrastive; LoRA‑anchor regularization; prompt diversity regularization
 - 🏋️ **Trainer:** custom `MedRecTrainer` / `trainer_seq2seq.py` with lightweight checkpointing (adapters + prompts only)
