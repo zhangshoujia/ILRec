@@ -60,7 +60,7 @@ ILRec uses **two decoupled environments** (one per stage) to avoid library confl
 **Use case:** run psct-tun.bash (LLM fine-tuning) and psct-inf.bash (semantic embedding inference).
 
 **Quick start**
-```代码语言
+```
 # Python 3.9–3.10 recommended
 conda create -y -n ilrec-stage1 python=3.9
 conda activate ilrec-stage1
@@ -70,7 +70,7 @@ pip install -r stage1/requirements.txt
 ```
 
 ### **Minimal core (if you prefer manual install)** 🧪
-```代码语言
+```
 # PyTorch 2.x with CUDA (pick a wheel that matches your CUDA/driver)
 # Example: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
@@ -102,7 +102,7 @@ pip install \
 **Use case:** train/evaluate backbone GNN recommenders and ILRec Stage-2 alignment.
 
 **Quick start**
-```代码语言
+```
 # Python 3.9 recommended
 conda create -y -n ilrec-stage2 python=3.9
 conda activate ilrec-stage2
