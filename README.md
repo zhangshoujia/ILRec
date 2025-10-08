@@ -7,13 +7,13 @@
 - 👉 **ILRec.**  
   1) **Interaction‑Aware Contrastive Fine‑Tuning (ICFT):** fine‑tune an LLM to generate interaction‑aware user/item semantic embeddings that pull together observed pairs and push apart non‑interacted pairs.  
   2) **Multi‑Level Representation Alignment (MLRA):** align **semantic** and **collaborative** representations at both **node** and **interaction** levels with contrastive objectives.
-- 📚 **Outcome.** On four public datasets, ILRec consistently boosts GNN recommenders.
+- 📚 **Outcome.** On four public datasets, ILRec consistently boosts GNN-based recommenders.
 
 ---
 
 ![Framework](figs/framework.png)
 
-## Repository Layout ✨
+## Repository Layout ⚙️
 
 ```
 .
@@ -49,11 +49,11 @@
 
 ---
 
-## 1. Environment 🧪
+## 1. Environment 📝
 
 ILRec uses **two decoupled environments** (one per stage) to avoid library conflicts between LLM fine-tuning (Stage-1) and GNN recommendation training (Stage-2). Below are **tested, reproducible** setups distilled from the requirements you provided.
 
-## **Stage-1 (LLM fine-tuning & inference)** 🥇
+## **Stage-1 (LLM fine-tuning & inference)** 💡
 
 **What’s in it:** PyTorch 2.x, Hugging Face stack (transformers, accelerate, datasets, evaluate), LoRA/PEFT, DeepSpeed, BitsAndBytes, etc.
 
@@ -69,7 +69,7 @@ conda activate ilrec-stage1
 pip install -r stage1/requirements.txt
 ```
 
-### **Minimal core (if you prefer manual install)** 🧪
+### **Minimal core (if you prefer manual install)** 
 ```
 # PyTorch 2.x with CUDA (pick a wheel that matches your CUDA/driver)
 # Example: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
@@ -87,15 +87,7 @@ pip install \
   pyyaml tqdm
 ```
 
-> **Notes**
->
-> **CUDA/Driver**: Stage-1 stack in your machine is CUDA-12–ready (many nvidia-cu12 libs present). Use a PyTorch build that matches your system CUDA.
->
-> **BitsAndBytes**: if installation fails on your GPU/driver, you can skip it and run without 4/8-bit quantization.
->
-> **DeepSpeed**: installed via wheels; for ZeRO-3 you may export DEEPSPEED_ZERO_STAGE=3.
-
-## **Stage-2 (GNN recommendation training)** 🏋️
+## **Stage-2 (GNN recommendation training)** 💡
 
 **What’s in it:** PyTorch **1.13.1+cu116** family with **PyG** (torch-geometric, torch_scatter, torch_sparse), SciPy/NumPy/Sklearn, etc.
 
@@ -121,8 +113,9 @@ pip install -r stage2/requirements.txt
 
 ## 2. Data 📚
 
-We evaluate on **Book**, **Yelp**, **Steam**, and a **Toy** demo.  
+We evaluate on **Book**, **Yelp**, **Steam**, and **Toy** datasets. [datasets](https://drive.google.com/file/d/16QOidCeeoJZxRoBsBNEP_TkvyQ2aCbIQ/view?usp=sharing) 
 Stage‑2 expects sparse matrices and text resources:
+
 ```
 stage2/data/{book|yelp|steam|toy}/
   ├─ trn_mat.pkl          # training interactions (scipy sparse)
@@ -136,19 +129,13 @@ stage2/data/{book|yelp|steam|toy}/
 
 If you precompute a semantic interaction graph, place it as:```
 stage2/data/<dataset>/semantic_graph_top<K>_mat.pkl
+
 ```
 It will be auto‑loaded based on the YAML’s `semantic_topk`.
-
----
-
-## 3. Stage‑1 — Interaction‑Aware Contrastive Fine‑Tuning (ICFT) 🥇
-
+## 3. Stage‑1 — Interaction‑Aware Contrastive Fine‑Tuning (ICFT) 
 **Goal:** adapt a base LLM (e.g., LLaMA‑7B) to output **interaction‑aware** user/item embeddings.
-
 ### 3.1 Prepare resources ✨
-
 Download all the files and weights of LLaMA-7b from https://huggingface.co/meta-llama and put them to the folder /resources/llama-7b/
-
 - 👉 Put base weights under:
 ```
   stage1/resources/llama-7b/
@@ -177,9 +164,9 @@ stage1/saved_models/<EMB_DIM>/<run>/
   └─ training_config.json
 ```
 
-> The ICFT loss pulls together observed (user, item) pairs and separates negatives; optional **LoRA‑anchor** and **prompt‑diversity** regularizers are available (see bash flags). The DeepSpeed config is `stage1/configs/ds_config_stable.json`.
+> The ICFT loss pulls together observed (user, item) pairs and separates negatives; optional **LoRA anchor** and **prompt diversity** regularizations are available (see bash flags). The DeepSpeed config is `stage1/configs/ds_config_stable.json`.
 
-### 3.3 Inference (generate semantics for all users/items) 🔮
+### 3.3 Inference (generate semantics for all users/items) 
 ```代码语言
 cd stage1
 bash psct-inf.bash
@@ -200,7 +187,7 @@ cp stage1/saved_models/<run>/item_embeddings.pkl stage2/data/book/ft_itm_emb.pkl
 
 ---
 
-## 4. Stage‑2 — Multi‑Level Representation Alignment (MLRA) 🥈
+## 4. Stage‑2 — Multi‑Level Representation Alignment (MLRA) 
 
 **Goal:** train a GNN recommender and align **semantic** (from Stage‑1) with **collaborative** representations at both **node** and **interaction** levels.
 
@@ -216,7 +203,7 @@ YAMLs live in `stage2/encoder/config/modelconf/`:
 Supported datasets: `book`, `yelp`, `steam`, `toy`.
 
 ### 4.2 Train ✨
-```代码语言
+```
 cd stage2
 python encoder/train_encoder.py \
   --model lightgcn_pro \
@@ -234,14 +221,14 @@ The trainer will:
 #### Quick hyper‑parameter overrides ✨
 
 You can override YAML keys at runtime:
-```代码语言
+```
 python encoder/train_encoder.py --model lightgcn_pro --dataset book --cuda 0
 ```
 
 ---
 
-## 5. Minimal Quickstart ✨
-```代码语言
+## 5. Minimal Quickstart 🚀
+```
 # 0) Create env
 conda create -y -n ilrec python=3.9 && conda activate ilrec
 # (install deps as in Section 1)
@@ -264,7 +251,7 @@ python encoder/train_encoder.py --model lightgcn_pro --dataset book --cuda 0
 
 ## 6. What’s Inside (by stage) ✨
 
-### Stage‑1 (ICFT) 🥇
+### Stage‑1 (ICFT) 
 
 - 🧠 **Backbone:** LLaMA‑style encoder (see `stage1/llm/llama.py`)
 - 🏋️ **Trainables:** LoRA adapters (`stage1/llm/lora_cls.py`), soft prompts, lightweight projection heads
@@ -272,7 +259,7 @@ python encoder/train_encoder.py --model lightgcn_pro --dataset book --cuda 0
 - 🏋️ **Trainer:** custom `MedRecTrainer` / `trainer_seq2seq.py` with lightweight checkpointing (adapters + prompts only)
 - 🏋️ **Scripts:** `psct-tun.bash` (training), `psct-inf.bash` (inference)
 
-### Stage‑2 (MLRA) ✨
+### Stage‑2 (MLRA) 
 
 - 🕸️ **Backbones:** `lightgcn_pro.py`, `gccf_pro.py` (dual‑graph propagation with semantic graph)
 - 👉 **Losses:** BPR, supervised contrastive, cross‑view (node-/interaction‑level) alignment, embedding‑level InfoNCE, regularization
