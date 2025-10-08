@@ -11,7 +11,10 @@
 
 ---
 
+![Framework](figs/framework.png)
+
 ## Repository Layout ✨
+
 ```
 .
 ├─ stage1/                                # Stage-1: LLM fine-tuning + semantic inference (ICFT)
@@ -147,7 +150,7 @@ It will be auto‑loaded based on the YAML’s `semantic_topk`.
 Download all the files and weights of LLaMA-7b from https://huggingface.co/meta-llama and put them to the folder /resources/llama-7b/
 
 - 👉 Put base weights under:
-  ```
+```
   stage1/resources/llama-7b/
   ```
 - 📚 Provide JSONL files under `stage1/data/<dataset>/`, e.g.:
@@ -162,7 +165,7 @@ bash psct-tun.bash book \
   --prompt_div_weight 0.005 \
   --contrastive_anchor_weight 0.005 \
   --contrastive_temperature 1.0
-```
+  ```
 
 Artifacts (lightweight only) are saved to:
 ```
