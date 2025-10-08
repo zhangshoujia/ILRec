@@ -9,9 +9,13 @@
   2) **Multi‑Level Representation Alignment (MLRA):** align **semantic** and **collaborative** representations at both **node** and **interaction** levels with contrastive objectives.
 - 📚 **Outcome.** On four public datasets, ILRec consistently boosts GNN-based recommenders.
 
----
-
-![Framework](figs/framework.png)
+<p align="center">
+  <a href="figs/framework.png">
+    <img src="figs/framework.png" alt="ILRec Framework" width="820">
+  </a>
+  <br>
+  <sub>Figure: ILRec framework (click to view full size)</sub>
+</p>
 
 ## Repository Layout ⚙️
 
