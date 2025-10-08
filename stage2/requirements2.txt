@@ -1,0 +1,27 @@
+# ILRec - Stage 2 (GNN-based recommendation)
+# Core, minimal requirements distilled from your environment list.
+
+# Pytorch + CUDA 11.6 wheels
+--extra-index-url https://download.pytorch.org/whl/cu116
+
+torch==1.13.1+cu116
+torchvision==0.14.1+cu116
+torchaudio==0.13.1+cu116
+
+# PyG ecosystem (ensure CUDA build matches your torch version)
+--find-links https://data.pyg.org/whl/torch-1.13.1+cu116.html
+torch-geometric==2.6.1
+torch_scatter==2.1.2
+torch_sparse==0.6.18
+
+numpy==1.24.4
+scipy==1.13.1
+scikit-learn==1.6.1
+pandas==2.3.1
+PyYAML==6.0.2
+tqdm==4.67.1
+matplotlib==3.9.4
+seaborn==0.13.2
+umap==0.1.1
+gpustat==1.1.1
+requests==2.32.3
