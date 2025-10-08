@@ -168,7 +168,8 @@ stage1/saved_models/<EMB_DIM>/<run>/
 > The ICFT loss pulls together observed (user, item) pairs and separates negatives; optional **LoRA anchor** and **prompt diversity** regularizations are available (see bash flags). The DeepSpeed config is `stage1/configs/ds_config_stable.json`.
 
 ### 3.3 Inference (generate semantics for all users/items) 
-```代码语言
+
+```
 cd stage1
 bash psct-inf.bash
 ```
