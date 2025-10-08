@@ -50,7 +50,7 @@
 
 We recommend one conda env for both stages (adjust CUDA to your setup).
 
-```bash
+```代码语言
 conda create -y -n ilrec python=3.9
 conda activate ilrec
 
