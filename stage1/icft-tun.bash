@@ -20,8 +20,8 @@ if [ $# -eq 0 ]; then
     echo "Usage: $0 <dataset_name> [options]"
     echo ""
     echo "Supported datasets:"
-    echo "  amazon_1k     - Amazon 1K sample dataset"
-    echo "  amazon        - Amazon full dataset"
+    echo "  book_1k     - book 1K sample dataset"
+    echo "  book        - book full dataset"
     echo "  yelp          - Yelp full dataset"
     echo "  steam         - Steam full dataset"
     echo "  toy           - Toy full dataset"
@@ -32,7 +32,7 @@ if [ $# -eq 0 ]; then
     echo "  --contrastive_anchor_weight <val> - Contrastive anchor weight (default: $CONTRASTIVE_ANCHOR_WEIGHT)"
     echo "  --contrastive_temperature <val>   - Contrastive temperature (default: $ANCHOR_CONTRASTIVE_TEMPERATURE)"
     echo ""
-    echo "Example: $0 amazon --lora_anchor_weight 0.01 --prompt_div_weight 0.01"
+    echo "Example: $0 book --lora_anchor_weight 0.01 --prompt_div_weight 0.01"
     exit 1
 fi
 
@@ -71,11 +71,11 @@ configure_dataset() {
     local dataset=$1
     
     case $dataset in
-        "amazon")
-            echo "Configuring Amazon full dataset..."
-            TRAIN_FILE="./data/RLMRecdata/amazon_all_train_json_samples/train_useritem_data.json"
-            VALID_FILE="./data/RLMRecdata/amazon_all_train_json_samples/valid_useritem_data.json"
-            OUTPUT_DIR="./saved_models/${EMBEDDING_DIM}/amazon_all_train_example"
+        "book")
+            echo "Configuring book full dataset..."
+            TRAIN_FILE="./data/RLMRecdata/book_all_train_json_samples/train_useritem_data.json"
+            VALID_FILE="./data/RLMRecdata/book_all_train_json_samples/valid_useritem_data.json"
+            OUTPUT_DIR="./saved_models/${EMBEDDING_DIM}/book_all_train_example"
             
             LEARNING_RATE=5e-6
             BATCH_SIZE=2
@@ -91,7 +91,7 @@ configure_dataset() {
             ;;
         *)
             echo "Error: unsupported dataset '$dataset'"
-            echo "Supported: amazon, yelp, steam, toy"
+            echo "Supported: book, yelp, steam, toy"
             exit 1
             ;;
     esac

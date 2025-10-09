@@ -9,8 +9,8 @@ import torch.utils.data as data
 
 class DataHandlerGeneralCF:
     def __init__(self):
-        if configs['data']['name'] == 'amazon':
-            predir = './data/amazon/'
+        if configs['data']['name'] == 'book':
+            predir = './data/book/'
         elif configs['data']['name'] == 'yelp':
             predir = './data/yelp/'
         elif configs['data']['name'] == 'steam':

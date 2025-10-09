@@ -16,17 +16,16 @@ class Logger(object):
             os.makedirs(log_dir_path)
         self.logger = logging.getLogger('train_logger')
         self.logger.setLevel(logging.INFO)
-        # 动态根据调参与取值构造目录（从环境变量读取）
+        # Dynamically construct sub-directory from tuning params (read from environment variables)
         tuning_param = os.environ.get('RLMREC_TUNING_PARAM')
         tuning_value = os.environ.get('RLMREC_TUNING_VALUE')
-        # 调试输出，确认环境变量读到的值
+        # Debug print to confirm the env variables are read correctly
         if tuning_param is not None and tuning_value is not None:
             if tuning_param == "ablation":
                 subdir = f"{tuning_param}/{tuning_value}"
             else:
                 subdir = f"{tuning_param}/{dataset_name}"
         else:
-            # 兼容旧逻辑（默认使用sup_cl_weight目录）
             subdir = f""
         full_dir = f"{log_dir_path}/{subdir}"
         print(f"[logger] log dir resolved to: {full_dir}")

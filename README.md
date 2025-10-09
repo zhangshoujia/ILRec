@@ -2,11 +2,11 @@
 
 
 > **Anonymous code release (double-blind).**  
-> This repository implements **ILRec**, a two-stage framework that couples the semantic generation ability of Large Language Models (LLMs) with the higher-order relational modeling of Graph Neural Networks (GNNs) to improve recommendations.
+> This repository implements **ILRec**, a two-stage framework that couples the semantic representation generation ability of Large Language Models (LLMs) with the higher-order relational modeling of Graph Neural Networks (GNNs) to improve recommendations.
 
 - 👉 **ILRec.**  
-  1) **Interaction‑Aware Contrastive Fine‑Tuning (ICFT):** fine‑tune an LLM to generate interaction‑aware user/item semantic embeddings that pull together observed pairs and push apart non‑interacted pairs.  
-  2) **Multi‑Level Representation Alignment (MLRA):** align **semantic** and **collaborative** representations at both **node** and **interaction** levels with contrastive objectives.
+  1) **Interaction‑Aware Contrastive Fine‑Tuning (ICFT):** we fine‑tune an LLM to generate interaction‑aware user/item semantic embeddings that pull together observed user-item pairs and push apart non‑interacted user-item pairs.  
+  2) **Multi‑Level Representation Alignment (MLRA):** we align **semantic** and **collaborative** representations at both **node** and **interaction** levels with a set of contrastive objectives.
 - 📚 **Outcome.** On four public datasets, ILRec consistently boosts GNN-based recommenders.
 
 <p align="left">
@@ -16,8 +16,6 @@
   <br>
   <sub>Figure: ILRec framework.</sub>
 </p>
-
-
 ## Repository Layout ⚙️
 
 ```
@@ -38,8 +36,8 @@
 │  ├─ trainers/, utils/
 │  ├─ main_llm.py                         # training entry (ICFT)
 │  ├─ batch_inference.py                  # batched embedding inference (user/item)
-│  ├─ psct-tun.bash                       # script: fine-tune LLMs (ICFT)
-│  └─ psct-inf.bash                       # script: infer semantics for all users/items
+│  ├─ icft-tun.bash                       # script: fine-tune LLMs (ICFT)
+│  └─ icft-inf.bash                       # script: infer semantics for all users/items
 │
 ├─ stage2/                                # Stage-2: GNN training + multi-level alignment (MLRA)
 │  ├─ data/                               # matrices + (fine-tuned) semantics
@@ -62,7 +60,7 @@ ILRec uses **two decoupled environments** (one per stage) to avoid library confl
 
 **What’s in it:** PyTorch 2.x, Hugging Face stack (transformers, accelerate, datasets, evaluate), LoRA/PEFT, DeepSpeed, BitsAndBytes, etc.
 
-**Use case:** run psct-tun.bash (LLM fine-tuning) and psct-inf.bash (semantic embedding inference).
+**Use case:** run icft-tun.bash (LLM fine-tuning) and icft-inf.bash (semantic embedding inference).
 
 **Quick start**
 ```
@@ -139,7 +137,7 @@ stage2/data/<dataset>/semantic_graph_top<K>_mat.pkl
 ```
 It will be auto‑loaded based on the YAML’s `semantic_topk`.
 ## 3. Stage‑1 — Interaction‑Aware Contrastive Fine‑Tuning (ICFT) 
-**Goal:** adapt a base LLM (e.g., LLaMA‑7B) to output **interaction‑aware** user/item embeddings.
+Goal: adapt a base LLM (e.g., LLaMA‑7B) to output interaction‑aware user/item embeddings.
 ### 3.1 Prepare resources ✨
 Download all the files and weights of LLaMA-7b from https://huggingface.co/meta-llama and put them to the folder /resources/llama-7b/
 - 👉 Put base weights under:
@@ -153,7 +151,7 @@ Download all the files and weights of LLaMA-7b from https://huggingface.co/meta-
 ### 3.2 Fine‑tune (LoRA + soft prompts + adapters) ✨
 ```代码语言
 cd stage1
-bash psct-tun.bash book \
+bash icft-tun.bash book \
   --lora_anchor_weight 0.005 \
   --prompt_div_weight 0.005 \
   --contrastive_anchor_weight 0.005 \
@@ -176,7 +174,7 @@ stage1/saved_models/<EMB_DIM>/<run>/
 
 ```
 cd stage1
-bash psct-inf.bash
+bash icft-inf.bash
 ```
 
 Outputs:```
@@ -190,7 +188,7 @@ cp stage1/saved_models/<run>/user_embeddings.pkl stage2/data/book/ft_usr_emb.pkl
 cp stage1/saved_models/<run>/item_embeddings.pkl stage2/data/book/ft_itm_emb.pkl
 ```
 
-> If you see errors like “missing `adapter_config.json` / `prompt_params.bin`”, re‑check that `psct-tun.bash` finished successfully and that `psct-inf.bash` points to the same `OUTPUT_DIR`.
+> If you see errors like “missing `adapter_config.json` / `prompt_params.bin`”, re‑check that `icft-tun.bash` finished successfully and that `icft-inf.bash` points to the same `OUTPUT_DIR`.
 
 ---
 
@@ -244,8 +242,8 @@ conda create -y -n ilrec python=3.9 && conda activate ilrec
 
 # 2) Stage-1: tune + infer
 cd stage1
-bash psct-tun.bash
-bash psct-inf.bash
+bash icft-tun.bash
+bash icft-inf.bash
 cp saved_models/<run>/user_embeddings.pkl ../stage2/data/book/ft_usr_emb.pkl
 cp saved_models/<run>/item_embeddings.pkl ../stage2/data/book/ft_itm_emb.pkl
 
@@ -264,11 +262,11 @@ python encoder/train_encoder.py --model lightgcn_pro --dataset book --cuda 0
 - 🏋️ **Trainables:** LoRA adapters (`stage1/llm/lora_cls.py`), soft prompts, lightweight projection heads
 - 🧩 **Losses:** interaction‑aware contrastive; LoRA‑anchor regularization; prompt diversity regularization
 - 🏋️ **Trainer:** custom `MedRecTrainer` / `trainer_seq2seq.py` with lightweight checkpointing (adapters + prompts only)
-- 🏋️ **Scripts:** `psct-tun.bash` (training), `psct-inf.bash` (inference)
+- 🏋️ **Scripts:** `icft-tun.bash` (training), `icft-inf.bash` (inference)
 
 ### Stage‑2 (MLRA) 
 
-- 🕸️ **Backbones:** `lightgcn_pro.py`, `gccf_pro.py` (dual‑graph propagation with semantic graph)
-- 👉 **Losses:** BPR, supervised contrastive, cross‑view (node-/interaction‑level) alignment, embedding‑level InfoNCE, regularization
+- 🕸️ **Backbones:** `lightgcn: lightgcn_pro.py`, `gccf: gccf_pro.py` (dual‑graph propagation with semantic graph)
+- 👉 **Losses:** BPR loss, GNN-based backbone recommender losses, cross‑view (node-/interaction‑level) alignment losses
 - 📚 **Configs:** YAMLs per model/dataset in `encoder/config/modelconf/`
 - 🏋️ **Entrypoint:** `encoder/train_encoder.py`

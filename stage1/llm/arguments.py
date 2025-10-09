@@ -84,97 +84,97 @@ class ModelArguments:
     classification: Optional[bool] = field(default=False)
     tau: Optional[float] = field(default=1.0)
     
-    # 用户-物品软提示学习相关参数
+    # User–item soft-prompt learning related arguments
     user_prompt_length: Optional[int] = field(
         default=10,
-        metadata={"help": "用户软提示token的数量"}
+        metadata={"help": "Number of user soft-prompt tokens"}
     )
     item_prompt_length: Optional[int] = field(
         default=10,
-        metadata={"help": "物品软提示token的数量"}
+        metadata={"help": "Number of item soft-prompt tokens"}
     )
     prompt_learning_rate: Optional[float] = field(
         default=1e-4,
-        metadata={"help": "软提示的学习率"}
+        metadata={"help": "Learning rate for soft prompts"}
     )
     adapter_hidden_size: Optional[int] = field(
         default=None,
-        metadata={"help": "Adapter层的隐藏层大小，如果为None则使用模型隐藏层大小的一半"}
+        metadata={"help": "Hidden size of the Adapter layer; if None, use half of the model hidden size"}
     )
     
-    # 全局batch对比损失相关参数
+    # Global-batch contrastive loss related arguments
     use_global_batch_loss: Optional[bool] = field(
         default=False,
-        metadata={"help": "是否使用全局batch对比损失函数，True为全局batch，False为本地batch"}
+        metadata={"help": "Whether to use global-batch contrastive loss; True = global batch, False = local batch"}
     )
 
-        # 用户-物品软提示学习相关参数
+    # User–item soft-prompt learning related arguments
     savesteps: Optional[int] = field(
         default=100,
-        metadata={"help": "保存检查点的步数"}
+        metadata={"help": "Number of steps between checkpoint saves"}
     )
     patience: Optional[int] = field(
         default=2,
-        metadata={"help": "早停的耐心值"}
+        metadata={"help": "Early stopping patience"}
     )
 
-    # # LoRA正则化参数
+    # # LoRA regularization arguments
     # lora_reg_weight: float = field(
     #     default=0.01,
-    #     metadata={"help": "LoRA正则化损失的权重"}
+    #     metadata={"help": "Weight of the LoRA regularization loss"}
     # )
     # enable_lora_reg: bool = field(
     #     default=True,
-    #     metadata={"help": "是否启用LoRA正则化"}
+    #     metadata={"help": "Whether to enable LoRA regularization"}
     # )
 
-    # # Prompt正则化参数
+    # # Prompt regularization arguments
     # prompt_reg_weight: float = field(
     #     default=0.005,
-    #     metadata={"help": "Prompt正则化损失的权重"}
+    #     metadata={"help": "Weight of the prompt regularization loss"}
     # )
     # enable_prompt_reg: bool = field(
     #     default=True,
-    #     metadata={"help": "是否启用Prompt正则化"}
+    #     metadata={"help": "Whether to enable prompt regularization"}
     # )
 
     emb_dim: Optional[int] = field(
         default=1536,
-        metadata={"help": "模型隐藏层大小"}
+        metadata={"help": "Embedding dimension (model hidden size)"}
     )
 
-    # LoRA 语义锚定正则
+    # LoRA semantic anchoring regularization
     enable_lora_anchor: bool = field(
         default=False,
-        metadata={"help": "是否启用 LoRA 语义锚定正则（双前向）"}
+        metadata={"help": "Whether to enable LoRA semantic anchoring regularization (double forward pass)"}
     )
     lora_anchor_weight: float = field(
         default=0.0,
-        metadata={"help": "LoRA 语义锚定正则权重 λ（L2）"}
+        metadata={"help": "LoRA semantic anchoring regularization weight λ (L2)"}
     )
 
-    # Prompt 多样性正则（Diversity Loss）
+    # Prompt diversity regularization (Diversity Loss)
     enable_prompt_diversity: bool = field(
         default=False,
-        metadata={"help": "是否启用 Prompt 多样性正则（基于行向量正交的多样性损失）"}
+        metadata={"help": "Whether to enable prompt diversity regularization (orthogonality-based diversity loss)"}
     )
     prompt_div_weight: float = field(
         default=0.0,
-        metadata={"help": "Prompt 多样性正则权重 λ_div"}
+        metadata={"help": "Prompt diversity regularization weight λ_div"}
     )
 
-    # 对比学习锚定正则（Contrastive Learning Anchor）
+    # Contrastive learning anchor regularization
     enable_contrastive_anchor: bool = field(
         default=False,
-        metadata={"help": "是否启用对比学习锚定正则（替代MSE损失）"}
+        metadata={"help": "Whether to enable contrastive learning anchor regularization (replaces MSE loss)"}
     )
     contrastive_anchor_weight: float = field(
         default=0.0,
-        metadata={"help": "对比学习锚定正则权重 λ_contrastive"}
+        metadata={"help": "Contrastive learning anchor regularization weight λ_contrastive"}
     )
     contrastive_temperature: float = field(
         default=1.0,
-        metadata={"help": "对比学习温度参数 τ（控制对比学习强度）"}
+        metadata={"help": "Contrastive learning temperature τ (controls contrast strength)"}
     )
 
 
@@ -335,18 +335,18 @@ class DataTrainingArguments:
         default="yelp", metadata={"help": "the choice of dataset"}
     )
 
-    # 用户-物品交互数据相关参数
+    # User–item interaction data related arguments
     user_text_column: Optional[str] = field(
         default="user_text",
-        metadata={"help": "用户文本列名"}
+        metadata={"help": "User text column name"}
     )
     item_text_column: Optional[str] = field(
         default="item_text", 
-        metadata={"help": "物品文本列名"}
+        metadata={"help": "Item text column name"}
     )
     label_column: Optional[str] = field(
         default="label",
-        metadata={"help": "标签列名"}
+        metadata={"help": "Label column name"}
     )
 
     def __post_init__(self):
@@ -361,4 +361,3 @@ class DataTrainingArguments:
                 assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
         if self.val_max_target_length is None:
             self.val_max_target_length = self.max_target_length
-

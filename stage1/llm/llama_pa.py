@@ -10,40 +10,41 @@ from transformers.modeling_outputs import SequenceClassifierOutputWithPast
 
 class UserItemPromptLlama(LlamaPreTrainedModel):
     """
-    用户-物品交互对的软提示学习模型
-    支持用户和物品的软提示token、权重学习和adapter
+    Soft-prompt learning model for user–item interaction pairs.
+    Supports user/item soft-prompt tokens, learnable weights, and an adapter.
     """
-    main_input_name = "user_input_ids"  # 告诉Trainer主要的输入参数名
+    main_input_name = "user_input_ids"  # Tell Trainer the primary input argument name
+
     def __init__(self, config: PretrainedConfig, *inputs, **kwargs):
         super().__init__(config, *inputs, **kwargs)
 
-        # 1) 先拿到 hidden_size，后续所有层都要用到
+        # 1) Obtain hidden_size first; subsequent layers depend on it
         self.hidden_size = config.hidden_size
 
-        # 2) 基础 Llama 模型
+        # 2) Base Llama model
         self.model = LlamaModel(config)
 
-        # 3) 配置参数
+        # 3) Configurable arguments
         self.pool_type = kwargs.pop("pool_type", "avg")
         tau_init = kwargs.pop("tau", 1.0)
         self.tau = nn.Parameter(torch.tensor([tau_init], dtype=torch.float32))
 
-        # 4) 软提示长度 & 最终投影维度
+        # 4) Soft-prompt lengths & final projection dimension
         self.user_prompt_length = kwargs.pop("user_prompt_length", 10)
         self.item_prompt_length = kwargs.pop("item_prompt_length", 10)
-        self.emb_dim = kwargs.pop("emb_dim", 1536)  # 如果你期望 1024，就把默认值改为 1024
+        self.emb_dim = kwargs.pop("emb_dim", 1536)  # If you prefer 1024, change the default to 1024
 
-        # 5) 注意力相关层（现在 self.hidden_size 已就绪，可以安全使用）
+        # 5) Attention-related layers (safe to use now that self.hidden_size is ready)
         self.user_prompt_key = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
         self.item_prompt_key = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
 
-        # 用 [user_pool ; item_pool] 作为查询，分别生成 user/item 的 query
+        # Use [user_pool ; item_pool] as the query to form user/item queries respectively
         self.user_query = nn.Linear(self.hidden_size * 2, self.hidden_size, bias=False)
         self.item_query = nn.Linear(self.hidden_size * 2, self.hidden_size, bias=False)
 
         self.attn_scale = self.hidden_size ** 0.5  # sqrt(d)
 
-        # 6) 软提示参数（可训练）
+        # 6) Soft-prompt parameters (trainable)
         self.user_prompts = nn.Parameter(
             torch.randn(self.user_prompt_length, self.hidden_size) * 0.02
         )
@@ -58,7 +59,7 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
             torch.ones(self.item_prompt_length) / self.item_prompt_length
         )
 
-        # 7) Adapter 层（可选）
+        # 7) Adapter layer (optional)
         self.adapter = nn.Sequential(
             nn.Linear(self.hidden_size, self.hidden_size // 2),
             nn.ReLU(),
@@ -66,13 +67,13 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
             nn.Linear(self.hidden_size // 2, self.hidden_size)
         )
 
-        # 8) 最终投影层（把 hidden_size -> emb_dim）
+        # 8) Final projection (hidden_size -> emb_dim)
         self.final_projection = nn.Linear(self.hidden_size, self.emb_dim)
 
-        # 9) 其它
+        # 9) Others
         self.use_global_batch_loss = kwargs.pop("use_global_batch_loss", False)
 
-        # 10) 初始化（LlamaPreTrainedModel 会处理线性层的权重初始化）
+        # 10) Initialize (LlamaPreTrainedModel handles linear layer weight init)
         self.post_init()
     
     def get_input_embeddings(self):
@@ -82,7 +83,7 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
         self.model.embed_tokens = value
     
     def _mean_pool(self, embs, mask):
-        # embs: [B, L, d], mask: [B, L] 或 None
+        # embs: [B, L, d], mask: [B, L] or None
         if mask is None:
             return embs.mean(dim=1)  # [B, d]
         m = mask.unsqueeze(-1).float()  # [B, L, 1]
@@ -95,52 +96,54 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
                         key_proj,       # nn.Linear(d->d) for K
                         prior_weights=None):
         """
-        用 query 对 prompt 做点积注意力，得到每个样本对 P 个 prompt 的权重，然后按权重缩放每个 prompt token。
-        返回: [B, P, d]，适合与原始嵌入在序列维度拼接。
+        Use query to perform dot-product attention over prompts, obtaining per-sample
+        weights over P prompt tokens; then scale each prompt token by its weight.
+        Returns: [B, P, d], which can be concatenated with the original embeddings along the sequence dimension.
         """
         # K: [P, d]
         K = key_proj(prompts)                          
 
-        # 注意力 logits: [B, P]
+        # Attention logits: [B, P]
         # (q @ K^T) / sqrt(d)
         attn_logits = torch.matmul(query, K.t()) / self.attn_scale
 
-        # 可选：把原有的可训练 prior 作为偏置（让模型在“注意力”基础上仍可保留先验偏好）
+        # Optional: treat learnable prior as a bias so the model can keep prior preference on top of attention
         if prior_weights is not None:
-            # prior: [P] -> log_softmax 后加到 logits 上
+            # prior: [P] -> add log_softmax prior to logits
             prior_bias = torch.log_softmax(prior_weights, dim=0)  # [P]
             attn_logits = attn_logits + prior_bias.unsqueeze(0)   # [B, P]
 
-        # 权重: [B, P]
+        # Weights: [B, P]
         attn = torch.softmax(attn_logits, dim=-1)
 
-        # 按权重缩放每个 prompt：先扩展到 [B, P, 1]，逐 token 乘以原始 prompts（而不是 K）
+        # Scale each prompt token by its weight: expand to [B, P, 1] and multiply the original prompts (not K)
         weighted_prompts = attn.unsqueeze(-1) * prompts.unsqueeze(0)  # [B, P, d]
         return weighted_prompts
     
     def _process_user_item_pair(self, user_input_ids, item_input_ids,
                                 user_attention_mask=None, item_attention_mask=None):
         """
-        处理用户-物品对：先取 user/item 的句向量（mean pool），
-        再以它们为 query 对各自的 prompt 做注意力加权，最后与原始 token 嵌入拼接。
+        Process a user–item pair: first obtain user/item sentence vectors (mean pool),
+        then use them as queries to attend to their respective prompts, and finally
+        concatenate the weighted prompts with the original token embeddings.
         """
         batch_size = user_input_ids.shape[0]
 
-        # 1) 原始 token 嵌入
+        # 1) Original token embeddings
         user_embeddings = self.model.embed_tokens(user_input_ids)  # [B, Lu, d]
         item_embeddings = self.model.embed_tokens(item_input_ids)  # [B, Li, d]
 
-        # 2) 句向量（可换成最后一层 hidden state 再池化，这里先用 embedding 的 mean pool）
+        # 2) Sentence vectors (could be last hidden state + pooling; here we use embedding mean-pool)
         u_pool = self._mean_pool(user_embeddings, user_attention_mask)  # [B, d]
         i_pool = self._mean_pool(item_embeddings, item_attention_mask)  # [B, d]
 
-        # 3) 生成查询（query）
+        # 3) Build queries
         ui = torch.cat([u_pool, i_pool], dim=-1)  # [B, 2d]
         iu = torch.cat([i_pool, u_pool], dim=-1)  # [B, 2d]
-        q_u = self.user_query(ui)                 # [B, d] ——用于“挑选/加权 user prompts”
-        q_i = self.item_query(iu)                 # [B, d] ——用于“挑选/加权 item prompts”
+        q_u = self.user_query(ui)                 # [B, d] — query to weigh user prompts
+        q_i = self.item_query(iu)                 # [B, d] — query to weigh item prompts
 
-        # 4) 基于注意力为每个样本生成加权后的 prompt（保留每个 token 的独立性）
+        # 4) Attention-weighted prompts for each sample (keep per-token independence)
         user_weighted_prompts = self._attend_prompts(
             self.user_prompts, q_u, self.user_prompt_key, prior_weights=self.user_prompt_weights
         )  # [B, Pu, d]
@@ -149,11 +152,11 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
             self.item_prompts, q_i, self.item_prompt_key, prior_weights=self.item_prompt_weights
         )  # [B, Pi, d]
 
-        # 5) 与原始嵌入拼接
+        # 5) Concatenate with original embeddings
         user_enhanced_embeddings = torch.cat([user_weighted_prompts, user_embeddings], dim=1)  # [B, Pu+Lu, d]
         item_enhanced_embeddings = torch.cat([item_weighted_prompts, item_embeddings], dim=1)  # [B, Pi+Li, d]
 
-        # 6) 同步扩展 attention_mask（前置的 prompt 位置全部置 1）
+        # 6) Extend attention_mask accordingly (set prepended prompt positions to 1)
         if user_attention_mask is None:
             user_attention_mask = torch.ones(user_input_ids.size(0), user_input_ids.size(1),
                                             dtype=torch.long, device=user_input_ids.device)
@@ -178,10 +181,10 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
         self,
         user_input_ids: torch.LongTensor = None,
         item_input_ids: torch.LongTensor = None,
-        input_ids: torch.LongTensor = None,  # 添加标准参数支持
+        input_ids: torch.LongTensor = None,  # standard argument for compatibility
         attention_mask: Optional[torch.Tensor] = None,
-        user_attention_mask: Optional[torch.Tensor] = None,  # 添加用户注意力掩码
-        item_attention_mask: Optional[torch.Tensor] = None,  # 添加物品注意力掩码
+        user_attention_mask: Optional[torch.Tensor] = None,  # user attention mask
+        item_attention_mask: Optional[torch.Tensor] = None,  # item attention mask
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -192,37 +195,37 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, SequenceClassifierOutputWithPast]:
         """
-        前向传播
+        Forward pass.
         Args:
-            user_input_ids: 用户文本的token ids
-            item_input_ids: 物品文本的token ids
-            input_ids: 标准参数名（兼容性）
-            attention_mask: 注意力掩码
-            user_attention_mask: 用户注意力掩码
-            item_attention_mask: 物品注意力掩码
-            labels: 标签（用于计算损失）
+            user_input_ids: token ids for user text
+            item_input_ids: token ids for item text
+            input_ids: standard argument (compatibility only; do not use for this model)
+            attention_mask: attention mask
+            user_attention_mask: user attention mask
+            item_attention_mask: item attention mask
+            labels: labels (used to compute loss)
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         
-        # 处理标准参数名的情况
+        # Handle standard argument name usage
         if input_ids is not None and user_input_ids is None and item_input_ids is None:
-            raise ValueError("请使用user_input_ids和item_input_ids参数，而不是input_ids")
-        
-        # 确保必要的参数存在
+            raise ValueError("Please use user_input_ids and item_input_ids instead of input_ids")
+
+        # Ensure required arguments exist
         if user_input_ids is None or item_input_ids is None:
-            raise ValueError("user_input_ids和item_input_ids都是必需的参数")
-        
-        # 处理注意力掩码
+            raise ValueError("Both user_input_ids and item_input_ids are required")
+
+        # Handle attention masks
         if user_attention_mask is None:
             user_attention_mask = attention_mask
         if item_attention_mask is None:
             item_attention_mask = attention_mask
         
-        # 处理用户-物品对，添加软提示
+        # Process the user–item pair and prepend soft prompts
         user_enhanced_embeddings, item_enhanced_embeddings, user_enhanced_mask, item_enhanced_mask = \
             self._process_user_item_pair(user_input_ids, item_input_ids, user_attention_mask, item_attention_mask)
         
-        # 通过Llama模型处理用户嵌入
+        # Run user path through Llama
         user_transformer_outputs = self.model(
             inputs_embeds=user_enhanced_embeddings,
             attention_mask=user_enhanced_mask,
@@ -235,7 +238,7 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
         )
         user_hidden_states = user_transformer_outputs[0]
         
-        # 通过Llama模型处理物品嵌入
+        # Run item path through Llama
         item_transformer_outputs = self.model(
             inputs_embeds=item_enhanced_embeddings,
             attention_mask=item_enhanced_mask,
@@ -248,60 +251,42 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
         )
         item_hidden_states = item_transformer_outputs[0]
         
-        # 池化得到用户和物品的表示（adapter/投影之前）
+        # Pool user/item representations (before adapter/projection)
         user_pooled = self._get_pool_emb(user_hidden_states, user_enhanced_mask)
         item_pooled = self._get_pool_emb(item_hidden_states, item_enhanced_mask)
 
-        # 保存一份“前 adapter/投影”的拼接表示，供锚定方案A使用
+        # Keep a copy of pre-adapter/projection pooled representations for anchoring scheme A
         pre_adapter_pooled = torch.cat([user_pooled, item_pooled], dim=0)
         
-        # 在 fp16 训练时，池化操作可能把张量变回 float32，导致与 adapter(fp16) 权重 dtype 不匹配
-        target_dtype = self.adapter[0].weight.dtype  # adapter 权重的 dtype（fp16 或 fp32）
+        # In fp16 training, pooling may cast back to float32; align with adapter weight dtype (fp16 or fp32)
+        target_dtype = self.adapter[0].weight.dtype
         if user_pooled.dtype != target_dtype:
             user_pooled = user_pooled.to(target_dtype)
         if item_pooled.dtype != target_dtype:
             item_pooled = item_pooled.to(target_dtype)
         
-        # 通过 adapter
+        # Through adapter
         user_embeddings = self.adapter(user_pooled)
         item_embeddings = self.adapter(item_pooled)
         
-        # 通过最终投影层，将4096维投影到1024维
+        # Final projection, e.g., 4096 -> 1024
         user_embeddings = self.final_projection(user_embeddings)
         item_embeddings = self.final_projection(item_embeddings)
-
-        # 输出embedding大小信息，验证batch_size
-        # print("=== Embedding Size Debug ===")
-        # print(f"user_embeddings.size: {user_embeddings.size()}")
-        # print(f"item_embeddings.size: {item_embeddings.size()}")
-        # print(f"Batch size (from user_embeddings): {user_embeddings.size(0)}")
-        # print(f"Hidden size: {user_embeddings.size(1)}")
-        # print(f"Total samples processed: {user_embeddings.size(0) + item_embeddings.size(0)}")
-        # print(f"Expected per_device_batch_size: 2")
-        # print(f"Expected total_batch_size: 4 (2 GPUs × 2 per_device)")
-        # print("===========================")
         
-        # 计算损失
+        # Compute loss
         loss = None
         if labels is not None:
-            # 从模型配置中获取是否使用全局batch损失
+            # Determine whether to use global-batch loss from model config
             use_global_batch = getattr(self, 'use_global_batch_loss', False)
             
             if use_global_batch:
-                # 使用全局batch损失函数
+                # Global-batch contrastive loss
                 loss_fct = GlobalBatchContrastiveLoss(self.tau)
             else:
-                # 使用原始本地batch损失函数
+                # Local-batch contrastive loss
                 loss_fct = UserItemContrastiveLoss(self.tau)
             
             loss = loss_fct(user_embeddings, item_embeddings)
-            
-            # 输出损失计算信息
-            # print("=== Loss Computation Debug ===")
-            # print(f"Loss value: {loss.item()}")
-            # print(f"Loss shape: {loss.shape}")
-            # print(f"Device: {loss.device}")
-            # print("=============================")
         
         if not return_dict:
             output = (user_embeddings, item_embeddings) + user_transformer_outputs[1:]
@@ -309,19 +294,19 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
         
         return SequenceClassifierOutputWithPast(
             loss=loss,
-            logits=torch.cat([user_embeddings, item_embeddings], dim=0),  # 为了兼容性（最终表征）
+            logits=torch.cat([user_embeddings, item_embeddings], dim=0),  # compatibility (final representations)
             past_key_values=user_transformer_outputs.past_key_values,
-            hidden_states=pre_adapter_pooled,  # 方案A：在此携带“前 adapter/投影”的拼接池化表示
+            hidden_states=pre_adapter_pooled,  # scheme A: carry concatenated pooled reps before adapter/projection
             attentions=user_transformer_outputs.attentions,
         )
     
     def _get_pool_emb(self, hidden_states, attention_mask):
-        """池化得到最终表示"""
+        """Pool the final representation."""
         if self.pool_type == "last":
-            # 取最后一个token
+            # use last token
             pooled_emb = hidden_states[:, -1, :]
         elif self.pool_type == "avg":
-            # 平均池化
+            # mean pooling
             if attention_mask is not None:
                 mask = attention_mask.unsqueeze(-1)
                 pooled_emb = torch.sum(hidden_states * mask, dim=1) / torch.sum(mask, dim=1)
@@ -335,47 +320,38 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
 
 class UserItemContrastiveLoss(nn.Module):
     """
-    用户-物品交互对的ICLL对比损失
-    实现公式: L_icll = -sum_{<u,i> in B_r} log(exp(sim(e_u, e_i)/tau) / sum_{v in B} exp(sim(e_u + e_i, e_v)/tau))
+    Interaction-level contrastive loss (ICLL) for user–item pairs.
+    Formula: L_icll = -sum_{<u,i> in B_r} log( exp(sim(e_u, e_i)/tau) / sum_{v in B} exp(sim(e_u + e_i, e_v)/tau) )
     """
-    
     def __init__(self, tau=1.0):
         super().__init__()
         self.temperature = tau
     
     def forward(self, user_embeddings, item_embeddings):
         """
-        计算用户-物品对的ICLL对比损失
+        Compute ICLL for user–item pairs.
         Args:
-            user_embeddings: (batch_size, hidden_size) - 用户嵌入
-            item_embeddings: (batch_size, hidden_size) - 物品嵌入
+            user_embeddings: (batch_size, hidden_size) — user embeddings
+            item_embeddings: (batch_size, hidden_size) — item embeddings
         """
         batch_size = user_embeddings.shape[0]
         
-        # 计算用户-物品相似度矩阵 (batch_size, batch_size)
+        # User–item similarity matrix (batch_size, batch_size)
         # sim(e_u, e_i) = e_u^T * e_i
         user_item_sim = (user_embeddings @ item_embeddings.T) / self.temperature
         
-        # 计算用户+物品与所有实体的相似度
-        # 将所有用户和物品嵌入拼接: [user_embeddings, item_embeddings]
+        # Concatenate all user/item embeddings
         all_embeddings = torch.cat([user_embeddings, item_embeddings], dim=0)  # (2*batch_size, hidden_size)
         
-        # 计算用户+物品与所有实体的相似度
-        # (e_u + e_i)^T * e_v for all v in B
+        # Similarity between (e_u + e_i) and all entities in the batch
         user_item_sum = user_embeddings + item_embeddings  # (batch_size, hidden_size)
         user_item_all_sim = (user_item_sum @ all_embeddings.T) / self.temperature  # (batch_size, 2*batch_size)
         
-        # 计算损失
-        # 对于每个交互对 <u,i>，正例是 sim(e_u, e_i)，负例是 sim(e_u + e_i, e_v) for all v in B
+        # For each pair <u,i>, positive is sim(e_u, e_i); negatives are sim(e_u + e_i, e_v) for all v in batch
         loss = 0.0
         for i in range(batch_size):
-            # 正例: sim(e_u, e_i)
-            positive_score = user_item_sim[i, i]  # 对角线元素
-            
-            # 负例: sim(e_u + e_i, e_v) for all v in B
+            positive_score = user_item_sim[i, i]       # diagonal
             negative_scores = user_item_all_sim[i, :]  # (2*batch_size,)
-            
-            # 计算log概率
             log_prob = positive_score - torch.logsumexp(negative_scores, dim=0)
             loss -= log_prob
         
@@ -384,85 +360,59 @@ class UserItemContrastiveLoss(nn.Module):
 
 class GlobalBatchContrastiveLoss(nn.Module):
     """
-    全局batch对比损失函数
-    收集所有GPU的数据，进行全局batch对比学习
+    Global-batch contrastive loss.
+    Gather embeddings across all GPUs to perform contrastive learning globally.
     """
-    
     def __init__(self, tau=1.0):
         super().__init__()
         self.temperature = tau
     
     def forward(self, user_embeddings, item_embeddings):
         """
-        计算全局batch对比损失
+        Compute global-batch contrastive loss.
         Args:
-            user_embeddings: (batch_size, hidden_size) - 用户嵌入
-            item_embeddings: (batch_size, hidden_size) - 物品嵌入
+            user_embeddings: (batch_size, hidden_size) — user embeddings
+            item_embeddings: (batch_size, hidden_size) — item embeddings
         """
         import torch.distributed as dist
         import torch.distributed.nn.functional as dist_nn_f
         
-        # 收集所有GPU的embeddings（使用autograd-safe的all_gather）
-        global_user_embeddings = dist_nn_f.all_gather(user_embeddings)  # 返回tuple
-        global_item_embeddings = dist_nn_f.all_gather(item_embeddings)  # 返回tuple
+        # Autograd-safe all_gather from all GPUs
+        global_user_embeddings = dist_nn_f.all_gather(user_embeddings)  # tuple
+        global_item_embeddings = dist_nn_f.all_gather(item_embeddings)  # tuple
         
-        # 拼接tuple中的张量
+        # Concatenate tensors from the tuple
         global_user_embeddings = torch.cat(global_user_embeddings, dim=0)  # (world_size * batch_size, hidden_size)
         global_item_embeddings = torch.cat(global_item_embeddings, dim=0)  # (world_size * batch_size, hidden_size)
         
         world_size = dist.get_world_size() if dist.is_initialized() else 1
         local_batch_size = user_embeddings.shape[0]
         global_batch_size = global_user_embeddings.shape[0]
-        
-        # print(f"=== Global Batch Debug ===")
-        # print(f"World size: {world_size}")
-        # print(f"Local batch size: {local_batch_size}")
-        # print(f"Global batch size: {global_batch_size}")
-        # print(f"Global user embeddings shape: {global_user_embeddings.shape}")
-        # print(f"Global item embeddings shape: {global_item_embeddings.shape}")
-        # print("==========================")
 
-        # 相比于第一版，多加了一个归一化操作
+        # Normalize before similarity
         global_user_embeddings = F.normalize(global_user_embeddings, dim=-1)
         global_item_embeddings = F.normalize(global_item_embeddings, dim=-1)
-        # 使用全局batch计算损失，对原始版本进行了修改
-        # 正例分数: e_u ⊙ e_i (逐元素相乘后求和)
+
+        # Positive scores: element-wise product followed by sum
         pos_score = (global_user_embeddings * global_item_embeddings).sum(dim=-1)  # (global_batch_size,)
         pos_score = torch.exp(pos_score / self.temperature)
         
-        # 负例分数: e_u^T × e_v + e_i^T × e_v
-        node_emb = torch.cat([global_user_embeddings, global_item_embeddings], dim=0)  # (2*global_batch_size, hidden_size)
-        ttl_u_score = torch.matmul(global_user_embeddings, node_emb.transpose(0, 1))  # (global_batch_size, 2*global_batch_size)
-        ttl_i_score = torch.matmul(global_item_embeddings, node_emb.transpose(0, 1))   # (global_batch_size, 2*global_batch_size)
-        ttl_score = torch.exp((ttl_u_score + ttl_i_score) / self.temperature).sum(dim=1)  # (global_batch_size,)
+        # Negative scores: e_u^T * e_v + e_i^T * e_v
+        node_emb = torch.cat([global_user_embeddings, global_item_embeddings], dim=0)  # (2*global_batch_size, H)
+        ttl_u_score = torch.matmul(global_user_embeddings, node_emb.transpose(0, 1))   # (G, 2G)
+        ttl_i_score = torch.matmul(global_item_embeddings, node_emb.transpose(0, 1))   # (G, 2G)
+        ttl_score = torch.exp((ttl_u_score + ttl_i_score) / self.temperature).sum(dim=1)  # (G,)
         
-        # 计算对比损失
+        # Contrastive loss
         loss = -torch.log(pos_score / ttl_score).mean()
         
         return loss / global_batch_size
-        
-        # 使用全局batch计算损失
-        # user_item_sim = (global_user_embeddings @ global_item_embeddings.T) / self.temperature
-        # all_embeddings = torch.cat([global_user_embeddings, global_item_embeddings], dim=0)
-        # user_item_sum = global_user_embeddings + global_item_embeddings
-        # user_item_all_sim = (user_item_sum @ all_embeddings.T) / self.temperature
-        
-        # # 计算全局损失
-        # loss = 0.0
-        # for i in range(global_batch_size):
-        #     positive_score = user_item_sim[i, i]
-        #     negative_scores = user_item_all_sim[i, :]
-        #     log_prob = positive_score - torch.logsumexp(negative_scores, dim=0)
-        #     loss -= log_prob
-        
-        # return loss / global_batch_size
 
 
-# 保留原有的LlamaRSEmb类以保持兼容性
+# Keep the original LlamaRSEmb for compatibility
 class LlamaRSEmb(LlamaPreTrainedModel):
 
     def __init__(self, config: PretrainedConfig, *inputs, **kwargs):
-        
         super().__init__(config, *inputs, **kwargs)
         self.model = LlamaModel(config)
         self.pool_type = kwargs.pop("pool_type")
@@ -472,14 +422,11 @@ class LlamaRSEmb(LlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-
     def get_input_embeddings(self):
         return self.model.embed_tokens
 
-
     def set_input_embeddings(self, value):
         self.model.embed_tokens = value
-
 
     def forward(
         self,
@@ -513,7 +460,7 @@ class LlamaRSEmb(LlamaPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        hidden_states = transformer_outputs[0]  # get the output from LLM (bs, seq_len, hidden_size)
+        hidden_states = transformer_outputs[0]  # LLM output (bs, seq_len, hidden_size)
 
         if input_ids is not None:
             batch_size = input_ids.shape[0]
@@ -530,21 +477,21 @@ class LlamaRSEmb(LlamaPreTrainedModel):
             else:
                 sequence_lengths = -1
 
-        # transformer_outputs.hidden_states = hidden_states[torch.arange(batch_size, device=logits.device), sequence_lengths]   # output the hidden_states for feature-based KD
+        # Save pooled hidden states for feature-based KD
         transformer_outputs.hidden_states = self._get_pool_emb(hidden_states, sequence_lengths, attention_mask)
 
-        # get pooled logits
+        # Pooled logits
         pooled_logits = transformer_outputs.hidden_states
 
-        # split the pair of outputs
+        # Split the pair of outputs
         batch_size = input_ids.size(0) // 2
         chosen_logits, rejected_logits = pooled_logits.split(batch_size, dim=0)
 
         loss = None
         if labels is not None:
-
             loss_fct = Contrastive_Loss(self.tau)
             loss = loss_fct(chosen_logits, rejected_logits)
+
         if not return_dict:
             output = (pooled_logits,) + transformer_outputs[1:]
             return ((loss,) + output) if loss is not None else output
@@ -557,30 +504,25 @@ class LlamaRSEmb(LlamaPreTrainedModel):
             attentions=transformer_outputs.attentions,
         )
     
-
     def _get_pool_emb(self, hidden_states, sequence_lengths, pooled_mask):
-        """get the logits according to pool type"""
-        if self.pool_type == "last":    # take out the last token as LLM embedding
+        """Get logits according to the selected pooling type."""
+        if self.pool_type == "last":  # use last token as LLM embedding
             pooled_emb = hidden_states[torch.arange(hidden_states.shape[0], device=hidden_states.device), 
                                        sequence_lengths]
-        # average pooling all tokens as LLM embedding or average pooling attribute tokens as LLM embedding
-        elif self.pool_type == "avg":   
-            pooled_emb = torch.sum(hidden_states * pooled_mask.unsqueeze(-1), dim=1) / torch.sum(pooled_mask, dim=1).unsqueeze(-1) #sequence_lengths.unsqueeze(-1)
+        # avg-pool all tokens or attribute tokens as LLM embedding
+        elif self.pool_type == "avg":
+            pooled_emb = torch.sum(hidden_states * pooled_mask.unsqueeze(-1), dim=1) / torch.sum(pooled_mask, dim=1).unsqueeze(-1)
 
         return pooled_emb
-
 
 
 class Contrastive_Loss(nn.Module):
 
     def __init__(self, tau=1) -> None:
         super().__init__()
-
         self.temperature = tau
 
-
     def forward(self, X, Y):
-        
         logits = (X @ Y.T) / self.temperature
         X_similarity = Y @ Y.T
         Y_similarity = X @ X.T
@@ -589,22 +531,13 @@ class Contrastive_Loss(nn.Module):
         )
         X_loss = self.cross_entropy(logits, targets, reduction='none')
         Y_loss = self.cross_entropy(logits.T, targets.T, reduction='none')
-        loss =  (Y_loss + X_loss) / 2.0 # shape: (batch_size)
+        loss = (Y_loss + X_loss) / 2.0  # shape: (batch_size)
         return loss.mean()
     
-
     def cross_entropy(self, preds, targets, reduction='none'):
-
         log_softmax = nn.LogSoftmax(dim=-1)
         loss = (-targets * log_softmax(preds)).sum(1)
         if reduction == "none":
             return loss
         elif reduction == "mean":
             return loss.mean()
-        
-
-
-
-
-
-

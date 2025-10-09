@@ -3,10 +3,10 @@
 # Model and data paths
 MODEL_NAME="resources/llama-7b"
 
-OUTPUT_DIR="./saved_models/amazon_all_train_example" # Model and results output directory
+OUTPUT_DIR="./saved_models/book_all_train_example" # Model and results output directory
 
-USER_FILE="./data/amazon/amazon_all_train_json_samples/unique_users.json"  # user data file
-ITEM_FILE="./data/amazon/amazon_all_train_json_samples/unique_items.json"  # item data file
+USER_FILE="./data/book/book_all_train_json_samples/unique_users.json"  # user data file
+ITEM_FILE="./data/book/book_all_train_json_samples/unique_items.json"  # item data file
 
 # Inference hyperparameters
 BATCH_SIZE=16

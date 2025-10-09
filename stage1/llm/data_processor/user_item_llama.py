@@ -7,27 +7,27 @@ from transformers import PreTrainedTokenizer
 
 def dropout_feature(text: str, dropout_ratio: float) -> tuple:
     """
-    对文本进行特征dropout，生成两个版本
+    Apply feature dropout to text and produce two versions.
     Args:
-        text: 原始文本
-        dropout_ratio: dropout比例
+        text: original text
+        dropout_ratio: dropout ratio
     Returns:
-        chosen: 保留的文本
-        rejected: dropout后的文本
+        chosen: the retained/original text
+        rejected: the text after dropping words
     """
     words = text.split()
     if len(words) <= 1:
         return text, text
     
-    # 随机选择要dropout的单词
+    # Randomly select words to drop
     num_to_drop = max(1, int(len(words) * dropout_ratio))
     indices_to_drop = random.sample(range(len(words)), num_to_drop)
     
-    # 创建两个版本
+    # Create two versions
     chosen_words = words.copy()
     rejected_words = words.copy()
     
-    # 在rejected版本中删除选中的单词
+    # Delete the selected words in the rejected version
     for idx in sorted(indices_to_drop, reverse=True):
         del rejected_words[idx]
     
@@ -39,8 +39,8 @@ def dropout_feature(text: str, dropout_ratio: float) -> tuple:
 
 class UserItemTrainProcessor:
     """
-    用户-物品交互对的训练数据处理器
-    适用于ICLL对比损失函数
+    Training data processor for user–item interaction pairs.
+    Suitable for the ICLL contrastive loss.
     """
     
     def __init__(self, data_args, model_args, tokenizer: PreTrainedTokenizer):
@@ -82,7 +82,7 @@ class UserItemTrainProcessor:
 
 class UserItemEvalProcessor:
     """
-    用户-物品交互对的评估数据处理器
+    Evaluation data processor for user–item interaction pairs.
     """
     
     def __init__(self, data_args, model_args, tokenizer: PreTrainedTokenizer):
@@ -95,11 +95,11 @@ class UserItemEvalProcessor:
     
     def __call__(self, example):
         """
-        处理评估数据
+        Process a single evaluation example.
         Args:
-            example: 包含用户文本、物品文本和标签的字典（单条）
+            example: a dict containing user text, item text, and label (single sample)
         Returns:
-            dict，包含user/item的input_ids和attention_mask等
+            dict containing user/item input_ids and attention_mask, etc.
         """
         max_seq_length = self.data_args.max_source_length
         user_text = example.get(self.user_text_column, "")
@@ -129,7 +129,7 @@ class UserItemEvalProcessor:
 
 class UserItemDataCollator:
     """
-    用户-物品交互对的数据整理器
+    Data collator for user–item interaction pairs.
     """
     
     def __init__(self, tokenizer: PreTrainedTokenizer, padding=True, max_length=None):
@@ -139,17 +139,17 @@ class UserItemDataCollator:
     
     def __call__(self, features: List[Dict]) -> Dict[str, torch.Tensor]:
         """
-        整理batch数据
+        Collate a batch of samples.
         Args:
-            features: 包含用户-物品对的列表
+            features: a list of user–item pairs
         """
         batch = {}
         
-        # 检查features是否为空或包含无效数据
+        # Check if features are empty or contain invalid data
         if not features:
             raise ValueError("Features list is empty")
         
-        # 检查第一个feature是否包含必要的键
+        # Check that the first feature contains required keys
         first_feature = features[0]
         # print(f"first_feature: {first_feature}")
         required_keys = ["user_input_ids", "item_input_ids", "user_attention_mask", "item_attention_mask", "labels"]
@@ -157,7 +157,7 @@ class UserItemDataCollator:
         if missing_keys:
             raise ValueError(f"Missing required keys in features: {missing_keys}. Available keys: {list(first_feature.keys())}")
         
-        # 分别处理用户和物品的输入
+        # Handle inputs for users and items separately
         user_input_ids = [f["user_input_ids"] for f in features]
         item_input_ids = [f["item_input_ids"] for f in features]
         user_attention_mask = [f["user_attention_mask"] for f in features]
@@ -179,7 +179,7 @@ class UserItemDataCollator:
                 return_tensors="pt"
             )
             
-            # 手动处理attention mask的padding
+            # Manually pad attention masks
             max_user_len = max(len(mask) for mask in user_attention_mask)
             max_item_len = max(len(mask) for mask in item_attention_mask)
             
@@ -205,8 +205,8 @@ class UserItemDataCollator:
         
         batch["labels"] = torch.tensor(labels)
         
-        # 重新映射参数名以匹配模型的forward方法
-        # 模型期望 user_input_ids 和 item_input_ids，而不是 input_ids
+        # Remap parameter names to match the model's forward method
+        # The model expects user_input_ids and item_input_ids, not input_ids
         batch["user_input_ids"] = batch["user_input_ids"]
         batch["item_input_ids"] = batch["item_input_ids"]
         batch["user_attention_mask"] = batch["user_attention_mask"]
