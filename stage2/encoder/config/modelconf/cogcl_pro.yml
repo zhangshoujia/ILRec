@@ -1,0 +1,185 @@
+optimizer:
+  name: adam
+  lr: 1.0e-3
+  weight_decay: 0
+
+train:
+  epoch: 3000
+  batch_size: 4096
+  save_model: true
+  loss: pairwise
+  log_loss: true
+  test_step: 3
+  patience: 5
+  reproducible: true
+  seed: 2023
+
+test:
+  metrics: [recall, ndcg]
+  k: [5, 10, 20]
+  batch_size: 1024
+
+data:
+  type: general_cf
+  name: amazon
+
+model:
+  name: cogcl_pro
+
+  layer_num: 3
+  embedding_size: 32
+
+  sup_contrast_temperature: 0.25
+  sup_cl_weight: 0.2
+  cv_sup_cl_weight: 0.2
+  contrast_temperature: 1.0
+  emb_cl_weight: 0.005
+  reg_weight: 0.0001
+  keep_rate: 0.2
+
+  semantic_topk: 5
+
+  amazon:
+    layer_num: 3
+    require_pow: True
+    user_code_num: 4
+    item_code_num: 4
+    user_code_size: 256
+    item_code_size: 256
+    gnn_transform: "code_positive"
+
+
+    code_dist: 'cos'   # 'cos' or 'l2'
+    code_dist_tau: 0.2
+    code_batch_size: 10240
+    vq_type: 'rq'     # 'rq' or 'pq'
+    vq_ema: False
+
+
+    vq_loss_weight: 1.0
+    cl_weight: 0.1
+    sim_cl_weight: 0
+    cl_tau: 0.2
+
+    data_aug_delay: 0
+    graph_replace_p: 0.2
+    graph_add_p: 0.2
+
+    drop_p: 0.1
+    drop_fwd: True
+
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 0.5
+    cv_sup_cl_weight: 0.05
+    contrast_temperature: 0.75
+    emb_cl_weight: 0.005
+    reg_weight: 1e-05
+  
+  yelp:
+    layer_num: 3
+    require_pow: True
+    user_code_num: 4
+    item_code_num: 4
+    user_code_size: 256
+    item_code_size: 256
+    gnn_transform: "code_positive"
+
+
+    code_dist: 'cos'   # 'cos' or 'l2'
+    code_dist_tau: 0.2
+    code_batch_size: 10240
+    vq_type: 'rq'     # 'rq' or 'pq'
+    vq_ema: False
+
+
+    vq_loss_weight: 1.0
+    cl_weight: 0.1
+    sim_cl_weight: 0
+    cl_tau: 0.2
+
+    data_aug_delay: 0
+    graph_replace_p: 0.2
+    graph_add_p: 0.2
+
+    drop_p: 0.1
+    drop_fwd: True
+
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 0.5
+    cv_sup_cl_weight: 0.2
+    contrast_temperature: 0.25
+    emb_cl_weight: 0.005
+    reg_weight: 1e-09
+
+  
+  steam:
+    layer_num: 3
+    require_pow: True
+    user_code_num: 4
+    item_code_num: 4
+    user_code_size: 256
+    item_code_size: 256
+    gnn_transform: "code_positive"
+
+
+    code_dist: 'cos'   # 'cos' or 'l2'
+    code_dist_tau: 0.2
+    code_batch_size: 10240
+    vq_type: 'rq'     # 'rq' or 'pq'
+    vq_ema: False
+
+
+    vq_loss_weight: 1.0
+    cl_weight: 0.1
+    sim_cl_weight: 0
+    cl_tau: 0.2
+
+    data_aug_delay: 0
+    graph_replace_p: 0.2
+    graph_add_p: 0.2
+
+    drop_p: 0.1
+    drop_fwd: True
+
+    sup_contrast_temperature: 0.75
+    sup_cl_weight: 0.1
+    cv_sup_cl_weight: 0.1
+    contrast_temperature: 0.25
+    emb_cl_weight: 0.01
+    reg_weight: 1e-09
+  
+  toy:
+    layer_num: 3
+    require_pow: True
+    user_code_num: 4
+    item_code_num: 4
+    user_code_size: 256
+    item_code_size: 256
+    gnn_transform: "code_positive"
+
+
+    code_dist: 'cos'   # 'cos' or 'l2'
+    code_dist_tau: 0.2
+    code_batch_size: 10240
+    vq_type: 'rq'     # 'rq' or 'pq'
+    vq_ema: False
+
+
+    vq_loss_weight: 1.0
+    cl_weight: 0.1
+    sim_cl_weight: 0
+    cl_tau: 0.2
+
+    data_aug_delay: 0
+    graph_replace_p: 0.2
+    graph_add_p: 0.2
+
+    drop_p: 0.1
+    drop_fwd: True
+
+    sup_contrast_temperature: 0.5
+    sup_cl_weight: 0.001
+    cv_sup_cl_weight: 0.05
+    contrast_temperature: 0.75
+    emb_cl_weight: 0.05
+    reg_weight: 0.0001
