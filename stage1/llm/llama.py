@@ -90,82 +90,40 @@ class UserItemPromptLlama(LlamaPreTrainedModel):
         l = m.sum(dim=1).clamp(min=1.0) # [B, 1]
         return s / l
 
-    def _attend_prompts(self, prompts,  # [P, d]
-                        query,          # [B, d]
-                        key_proj,       # nn.Linear(d->d) for K
-                        prior_weights=None):
-        """
-        Use query to compute dot-product attention over prompts,
-        obtain per-sample weights for P prompts, then scale each prompt token by its weight.
-        Returns: [B, P, d], suitable for concatenation with original embeddings along the sequence dimension.
-        """
-        # K: [P, d]
-        K = key_proj(prompts)                          
 
-        # Attention logits: [B, P]
-        # (q @ K^T) / sqrt(d)
-        attn_logits = torch.matmul(query, K.t()) / self.attn_scale
-
-        if prior_weights is not None:
-            # prior: [P] -> add log_softmax prior to logits
-            prior_bias = torch.log_softmax(prior_weights, dim=0)  # [P]
-            attn_logits = attn_logits + prior_bias.unsqueeze(0)   # [B, P]
-
-        # Weights: [B, P]
-        attn = torch.softmax(attn_logits, dim=-1)
-        weighted_prompts = attn.unsqueeze(-1) * prompts.unsqueeze(0)  # [B, P, d]
+   def _get_weighted_prompts(self, prompt_tokens, prompt_weights):
+        weights = F.softmax(prompt_weights, dim=0)  # (prompt_length,)
+        weighted_prompts = prompt_tokens * weights.unsqueeze(1)  # (prompt_length, hidden_size)
         return weighted_prompts
     
-    def _process_user_item_pair(self, user_input_ids, item_input_ids,
-                                user_attention_mask=None, item_attention_mask=None):
-        """
-        Process a user–item pair: obtain sentence vectors (mean pool) for user/item,
-        use them as queries to attend to their respective prompts, then concatenate with token embeddings.
-        """
+    def _process_user_item_pair(self, user_input_ids, item_input_ids, user_attention_mask=None, item_attention_mask=None):
         batch_size = user_input_ids.shape[0]
-
-        user_embeddings = self.model.embed_tokens(user_input_ids)  # [B, Lu, d]
-        item_embeddings = self.model.embed_tokens(item_input_ids)  # [B, Li, d]
-
-        u_pool = self._mean_pool(user_embeddings, user_attention_mask)  # [B, d]
-        i_pool = self._mean_pool(item_embeddings, item_attention_mask)  # [B, d]
-
-        # 3) Build queries
-        ui = torch.cat([u_pool, i_pool], dim=-1)  # [B, 2d]
-        iu = torch.cat([i_pool, u_pool], dim=-1)  # [B, 2d]
-        q_u = self.user_query(ui)                 # [B, d]
-        q_i = self.item_query(iu)                 # [B, d]
-
-        user_weighted_prompts = self._attend_prompts(
-            self.user_prompts, q_u, self.user_prompt_key, prior_weights=self.user_prompt_weights
-        )  # [B, Pu, d]
-
-        item_weighted_prompts = self._attend_prompts(
-            self.item_prompts, q_i, self.item_prompt_key, prior_weights=self.item_prompt_weights
-        )  # [B, Pi, d]
-
-        user_enhanced_embeddings = torch.cat([user_weighted_prompts, user_embeddings], dim=1)  # [B, Pu+Lu, d]
-        item_enhanced_embeddings = torch.cat([item_weighted_prompts, item_embeddings], dim=1)  # [B, Pi+Li, d]
-
-        if user_attention_mask is None:
-            user_attention_mask = torch.ones(user_input_ids.size(0), user_input_ids.size(1),
-                                            dtype=torch.long, device=user_input_ids.device)
-        if item_attention_mask is None:
-            item_attention_mask = torch.ones(item_input_ids.size(0), item_input_ids.size(1),
-                                            dtype=torch.long, device=item_input_ids.device)
-
-        Pu = user_weighted_prompts.size(1)
-        Pi = item_weighted_prompts.size(1)
-        user_prompt_mask = torch.ones(batch_size, Pu, dtype=user_attention_mask.dtype,
-                                    device=user_attention_mask.device)
-        item_prompt_mask = torch.ones(batch_size, Pi, dtype=item_attention_mask.dtype,
-                                    device=item_attention_mask.device)
-
-        user_enhanced_mask = torch.cat([user_prompt_mask, user_attention_mask], dim=1)  # [B, Pu+Lu]
-        item_enhanced_mask = torch.cat([item_prompt_mask, item_attention_mask], dim=1)  # [B, Pi+Li]
-
-        return (user_enhanced_embeddings, item_enhanced_embeddings,
-                user_enhanced_mask, item_enhanced_mask)
+        
+        user_embeddings = self.model.embed_tokens(user_input_ids)  # (batch_size, seq_len, hidden_size)
+        item_embeddings = self.model.embed_tokens(item_input_ids)  # (batch_size, seq_len, hidden_size)
+        
+        user_weighted_prompts = self._get_weighted_prompts(self.user_prompts, self.user_prompt_weights)  # (user_prompt_length, hidden_size)
+        item_weighted_prompts = self._get_weighted_prompts(self.item_prompts, self.item_prompt_weights)  # (item_prompt_length, hidden_size)
+        
+        user_weighted_prompts = user_weighted_prompts.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, user_prompt_length, hidden_size)
+        item_weighted_prompts = item_weighted_prompts.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, item_prompt_length, hidden_size)
+        
+        user_enhanced_embeddings = torch.cat([user_weighted_prompts, user_embeddings], dim=1)
+        item_enhanced_embeddings = torch.cat([item_weighted_prompts, item_embeddings], dim=1)
+        
+        if user_attention_mask is not None:
+            user_prompt_mask = torch.ones(batch_size, self.user_prompt_length, device=user_attention_mask.device, dtype=user_attention_mask.dtype)
+            user_enhanced_mask = torch.cat([user_prompt_mask, user_attention_mask], dim=1)
+        else:
+            user_enhanced_mask = None
+        
+        if item_attention_mask is not None:
+            item_prompt_mask = torch.ones(batch_size, self.item_prompt_length, device=item_attention_mask.device, dtype=item_attention_mask.dtype)
+            item_enhanced_mask = torch.cat([item_prompt_mask, item_attention_mask], dim=1)
+        else:
+            item_enhanced_mask = None
+        
+        return user_enhanced_embeddings, item_enhanced_embeddings, user_enhanced_mask, item_enhanced_mask
     
     def forward(
         self,
