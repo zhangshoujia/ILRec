@@ -1,6 +1,4 @@
-# @Time   : 2022/3/8
-# @Author : Lanling Xu
-# @Email  : xulanling_sherry@163.com
+
 import copy
 import random
 import time
@@ -18,11 +16,7 @@ from sklearn.cluster import KMeans
 from models.loss_utils import reg_params
 import os
 from models.loss_utils import reg_params, cal_sup_cl_loss, cal_infonce_loss, make_torch_adj, load_one_mat
-# from recbole.data.interaction import Interaction
-# from torch_sparse import matmul
 
-
-# from recbole.model.loss import BPRLoss, EmbLoss
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 init = nn.init.xavier_uniform_
 uniformInit = nn.init.uniform
@@ -40,11 +34,11 @@ class COGCL_pro(BaseModel):
         self._user = torch.from_numpy(R.row).long()
         self._item = torch.from_numpy(R.col).long()
 
-        row = self._user                                  # [E]
-        col = self._item + self.n_users                   # [E] 物品偏移到 [n_users, n_users+n_items)
-        edge_index_ui = torch.stack([row, col], dim=0)    # [2, E]
-        edge_index_iu = torch.stack([col, row], dim=0)    # [2, E]
-        edge_index = torch.cat([edge_index_ui, edge_index_iu], dim=1)  # [2, 2E]
+        row = self._user                                 
+        col = self._item + self.n_users                   
+        edge_index_ui = torch.stack([row, col], dim=0)    
+        edge_index_iu = torch.stack([col, row], dim=0)   
+        edge_index = torch.cat([edge_index_ui, edge_index_iu], dim=1)
         edge_index = edge_index.to().cuda()
 
         self.adj = data_handler.torch_adj
@@ -52,33 +46,24 @@ class COGCL_pro(BaseModel):
         edge_weight = torch.ones(edge_index.size(1)).cuda()
         num_nodes = self.n_users + self.n_items
 
-        # 归一化（LightGCN常规做法）
         from torch_geometric.nn.conv.gcn_conv import gcn_norm
         self.edge_index, self.edge_weight = gcn_norm(
             edge_index, edge_weight, num_nodes, add_self_loops=False
         )
 
-        # 在 COGCL.__init__ 最前面（super 之后）加：
-        self.dataset = data_handler           # 兼容原有 self.dataset 用法
-        # self.device  = self.hyper_config['device']
-
-
-        # 初始化 code 相似缓存（注意不要用 [[]]*N）
+        self.dataset = data_handler          
         if not hasattr(self.dataset, 'code_similar_users'):
             self.dataset.code_similar_users = [list() for _ in range(self.n_users)]
         if not hasattr(self.dataset, 'code_similar_items'):
             self.dataset.code_similar_items = [list() for _ in range(self.n_items)]
 
-        # （可选）如果原框架里有“同目标”预处理就调用；没有就跳过
         if self.hyper_config.get('sim_cl_weight', 0) > 0 and hasattr(self.dataset, 'get_same_targe_users_items'):
             self.dataset.get_same_targe_users_items()
 
-        self.USER_ID      = configs['train'].get('user_field', 'user')         # 例如 'user'
-        self.ITEM_ID      = configs['train'].get('item_field', 'item')         # 例如 'item'（正例）
-        self.NEG_ITEM_ID  = configs['train'].get('neg_item_field', 'neg_item') # 例如 'neg_item'
+        self.USER_ID      = configs['train'].get('user_field', 'user')         
+        self.ITEM_ID      = configs['train'].get('item_field', 'item')         
+        self.NEG_ITEM_ID  = configs['train'].get('neg_item_field', 'neg_item')
 
-        
-        # self.dataset = dataset
         if self.hyper_config['sim_cl_weight'] > 0:
             self.dataset.get_same_targe_users_items()
             
@@ -91,12 +76,7 @@ class COGCL_pro(BaseModel):
 
 
 
-
-        # self._user = dataset.inter_feat[dataset.uid_field]
-        # self._item = dataset.inter_feat[dataset.iid_field]
-
         self.layer_num = configs['model']['layer_num']
-        # self.reg_weight = configs['model']['reg_weight']
         self.embedding_size = configs['model']['embedding_size']
 
         self.reg_weight = float(self.hyper_config.get('reg_weight', 0.0))
@@ -115,15 +95,14 @@ class COGCL_pro(BaseModel):
         self.code_dist = self.hyper_config['code_dist']
         self.code_dist_tau = self.hyper_config['code_dist_tau']
         self.code_batch_size = self.hyper_config['code_batch_size']
-        # self.vq_loss_weight = self.hyper_config['vq_loss_weight']
+
         self.vq_type = self.hyper_config['vq_type']
         self.vq_ema = self.hyper_config['vq_ema']
 
 
         self.require_pow = self.hyper_config['require_pow']
 
-        # self.cl_weight = self.hyper_config['cl_weight']
-        # self.sim_cl_weight = self.hyper_config['sim_cl_weight']
+
         self.cl_tau = self.hyper_config['cl_tau']
 
         self.graph_replace_p = self.hyper_config['graph_replace_p']
@@ -138,13 +117,10 @@ class COGCL_pro(BaseModel):
         self.semantic_topk = int(self.hyper_config.get('semantic_topk', 10))
 
         self.sup_cl_weight = float(self.hyper_config.get('sup_cl_weight', 0.1))
-        # self.sup_cl_weight = 0.0
 
         self.cv_sup_cl_weight = float(self.hyper_config.get('cv_sup_cl_weight', 0.1))
-        # self.cv_sup_cl_weight = 0.0
 
         self.emb_cl_weight = float(self.hyper_config.get('emb_cl_weight', 0.0))
-        # self.emb_cl_weight = 0.0
 
 
         self.contrast_temperature = float(self.hyper_config.get('contrast_temperature', 0.1))
@@ -167,23 +143,7 @@ class COGCL_pro(BaseModel):
             raise NotImplementedError
 
 
-
-        # self.user_embedding = torch.nn.Embedding(
-        #     num_embeddings=self.n_users, embedding_dim=self.embedding_size
-        # )
-        # self.item_embedding = torch.nn.Embedding(
-        #     num_embeddings=self.n_items, embedding_dim=self.embedding_size
-        # )
-
-        # self.user_code_embedding = torch.nn.Embedding(
-        #     num_embeddings=self.n_user_codes, embedding_dim=self.embedding_size
-        # )
-        # self.item_code_embedding = torch.nn.Embedding(
-        #     num_embeddings=self.n_item_codes, embedding_dim=self.embedding_size
-        # )
-
-
-        init = torch.nn.init.xavier_uniform_  # 若上文已有就不用重复
+        init = torch.nn.init.xavier_uniform_
 
         self.user_embedding = nn.Parameter(init(t.empty(self.n_users,        self.embedding_size)))
         self.item_embedding = nn.Parameter(init(t.empty(self.n_items,        self.embedding_size)))
@@ -209,17 +169,13 @@ class COGCL_pro(BaseModel):
         self.restore_user_e = None
         self.restore_item_e = None
 
-        # parameters initialization
-        # self.apply(xavier_uniform_initialization)
         self.other_parameter_name = ['restore_user_e', 'restore_item_e']
-
-
 
 
         self.debug_log = bool(self.hyper_config.get('debug_log', False))
         self.max_debug_steps = int(self.hyper_config.get('max_debug_steps', 2))
         self._debug_count = 0
-        target_device = configs['device']  # 直接使用配置中的设备
+        target_device = configs['device']
         self.usrprf_embeds = t.tensor(configs['usrprf_embeds']).float().cuda()
         self.itmprf_embeds = t.tensor(configs['itmprf_embeds']).float().cuda()
         self.register_buffer('semantic_user_embeds', self.usrprf_embeds)
@@ -227,62 +183,58 @@ class COGCL_pro(BaseModel):
         self.semantic_embedding_size = self.usrprf_embeds.shape[1]
 
         self.semantic_mlps = nn.Sequential(
-                nn.Linear(self.semantic_embedding_size, (self.embedding_size + self.semantic_embedding_size) // 2),
-                nn.LeakyReLU(),
-                nn.Linear((self.embedding_size + self.semantic_embedding_size) // 2, self.embedding_size)
+            nn.Linear(self.semantic_embedding_size, (self.embedding_size + self.semantic_embedding_size) // 2),
+            nn.LeakyReLU(),
+            nn.Linear((self.embedding_size + self.semantic_embedding_size) // 2, self.embedding_size)
         )
 
-        print(f"✓ 语义嵌入和设备嵌入都在设备: {target_device}")
+        print(f"✓ Semantic embeddings and model embeddings are both on device: {target_device}")
 
-        # 尝试加载预计算的语义图拉普拉斯矩阵
         self._try_load_semantic_graph_mat()
-        
-        
-        # 确保语义图在正确的设备上（使用配置中的目标设备）
+
+
         target_device = configs['device']
         if self.semantic_adj.device != target_device:
             self.semantic_adj = self.semantic_adj.to(target_device)
-            print(f"✓ 语义图已移动到目标设备: {target_device}")
+            print(f"✓ Semantic graph has been moved to the target device: {target_device}")
 
         self.interaction_user_indices = None
         self.interaction_item_indices = None
 
         self._init_weight()
 
-    def _init_weight(self):
+        def _init_weight(self):
 
-        for m in self.semantic_mlps:
-            if isinstance(m, nn.Linear):
-                init(m.weight)
+            for m in self.semantic_mlps:
+                if isinstance(m, nn.Linear):
+                    init(m.weight)
 
 
+        def _try_load_semantic_graph_mat(self):
+            """Try to load the precomputed semantic interaction graph using an adjacency matrix."""
+            try:
+                # Get the dataset name
 
-    def _try_load_semantic_graph_mat(self):
-        """尝试加载预计算的语义交互图，使用邻接矩阵"""
-        try:
-            # 获取数据集名称
+                precomputed_path = configs['sem_graph_path']
 
-            precomputed_path = configs['sem_graph_path']
-            
-            if os.path.exists(precomputed_path):
-                # 使用DataHandlerGeneralCF的方法加载和归一化语义图
-                trn_mat = load_one_mat(precomputed_path)
-                self.semantic_adj = make_torch_adj(trn_mat)
-                print(f"✓ 成功加载预计算的语义图，维度: {self.semantic_adj.size()}")
-                print(f"  非零元素数量: {self.semantic_adj._nnz()}")
-                print(f"  稀疏度: {1.0 - (self.semantic_adj._nnz() / (self.semantic_adj.size(0) * self.semantic_adj.size(1))):.4f}")
-                print(f"  设备: {self.semantic_adj.device}")
-                print(f"  目标设备: {configs['device']}")
+                if os.path.exists(precomputed_path):
+                    trn_mat = load_one_mat(precomputed_path)
+                    self.semantic_adj = make_torch_adj(trn_mat)
+                    print(f"✓ Successfully loaded the precomputed semantic graph. Shape: {self.semantic_adj.size()}")
+                    print(f"  Number of non-zero elements: {self.semantic_adj._nnz()}")
+                    print(f"  Sparsity: {1.0 - (self.semantic_adj._nnz() / (self.semantic_adj.size(0) * self.semantic_adj.size(1))):.4f}")
+                    print(f"  Current device: {self.semantic_adj.device}")
+                    print(f"  Target device: {configs['device']}")
 
-                # 确保语义图在正确的设备上
-                if self.semantic_adj.device != configs['device']:
-                    if self._debug_count < 3:  # 只在前几次打印警告
-                        print(f"⚠️ 设备不匹配，将语义图从 {self.semantic_adj.device} 移动到 {configs['device']}")
-                    self.semantic_adj = self.semantic_adj.to(configs['device'])
+                    # Ensure that the semantic graph is on the correct device
+                    if self.semantic_adj.device != configs['device']:
+                        if self._debug_count < 3:  # Print the warning only for the first few times
+                            print(f"⚠️ Device mismatch detected. Moving semantic graph from {self.semantic_adj.device} to {configs['device']}")
+                        self.semantic_adj = self.semantic_adj.to(configs['device'])
 
-        except Exception as e:
-            print(f"⚠️ 加载预计算语义图失败: {e}")
-            print("  继续使用动态构建的语义图")
+            except Exception as e:
+                print(f"⚠️ Failed to load the precomputed semantic graph: {e}")
+                print("  Continue using the dynamically constructed semantic graph")
 
     def make_all_one_adj(self):
         idxs = self.adj._indices()
@@ -318,7 +270,6 @@ class COGCL_pro(BaseModel):
         return torch.tensor(x, dtype=torch.long).cuda
 
     def _unpack_triplet(self, interaction):
-        # 支持 tuple/list: (u, p, n)；支持 dict: {'user':..., 'item':..., 'neg_item':...}
         if isinstance(interaction, (tuple, list)):
             if len(interaction) == 3:
                 u, p, n = interaction
@@ -338,19 +289,19 @@ class COGCL_pro(BaseModel):
         raise TypeError(f"unsupported interaction type: {type(interaction)}")
 
     def _get_aug_from_batch(self, batch, user, pos_item):
-        # 1) 如果 batch 是 dict 且包含键，就直接取
+
         if hasattr(batch, 'keys'):
             if self.AUG_USER_ID in batch and self.AUG_ITEM_ID in batch:
                 au = batch[self.AUG_USER_ID]
                 ai = batch[self.AUG_ITEM_ID]
                 return self._to_long(au), self._to_long(ai)
 
-        # 2) 否则：按数据集的相似列表现场采样（无则回退为自身）
+
         import random, torch
         u_list = user.tolist()
         i_list = pos_item.tolist()
 
-        # 这些列表在 __init__ 里我们已初始化：list[list[int]]
+
         cu = getattr(self.dataset, 'code_similar_users', None)
         ci = getattr(self.dataset, 'code_similar_items', None)
 
@@ -368,10 +319,7 @@ class COGCL_pro(BaseModel):
         return aug_users, aug_items
 
     def BPRLoss(self, pos_scores, neg_scores):
-        # pos_scores, neg_scores: 1D 实数向量
         return -torch.mean(F.logsigmoid(pos_scores - neg_scores))
-    # def EmbLoss(self):
-    #     return reg_params(self) * self.reg_weight
 
     def EmbReg(self):
         return (self.user_embedding.pow(2).sum()
@@ -554,9 +502,6 @@ class COGCL_pro(BaseModel):
 
         num_nodes = self.n_users + self.n_user_codes + self.n_items + self.n_item_codes
 
-        # aug_edge_index, aug_edge_weight = gcn_norm(aug_edge_index.to(self.device),
-        #                                            aug_edge_weight.to(self.device),
-        #                                            num_nodes, add_self_loops=False)
 
         aug_edge_index, aug_edge_weight = gcn_norm(aug_edge_index.to().cuda(),
                                             aug_edge_weight.to().cuda(),
@@ -565,28 +510,14 @@ class COGCL_pro(BaseModel):
 
         return aug_edge_index, aug_edge_weight
 
-    # def get_ego_embeddings(self):
-    #     r"""Get the embedding of users and items and combine to an embedding matrix.
-    #     Returns:
-    #         Tensor of the embedding matrix. Shape of [n_items+n_users, embedding_dim]
-    #     """
-    #     user_embeddings = self.user_embedding.weight
-    #     item_embeddings = self.item_embedding.weight
-    #     ego_embeddings = torch.cat([user_embeddings, item_embeddings], dim=0)
-    #     return ego_embeddings
+
 
     def get_ego_embeddings(self):
-        user_embeddings = self.user_embedding          # 原来是 .weight
+        user_embeddings = self.user_embedding          
         item_embeddings = self.item_embedding
         return torch.cat([user_embeddings, item_embeddings], dim=0)
 
-    # def get_w_codes_embeddings(self):
-    #     user_embeddings = self.user_embedding.weight
-    #     item_embeddings = self.item_embedding.weight
-    #     user_code_embeddings = self.user_code_embedding.weight
-    #     item_code_embeddings = self.item_code_embedding.weight
-    #     ego_embeddings = torch.cat([user_embeddings, user_code_embeddings, item_embeddings, item_code_embeddings], dim=0)
-    #     return ego_embeddings
+
     def get_w_codes_embeddings(self):
         user_embeddings = self.user_embedding
         item_embeddings = self.item_embedding
@@ -621,23 +552,18 @@ class COGCL_pro(BaseModel):
             semantic_adj = self.semantic_adj
 
         seman_embeds = t.cat([self.semantic_user_embeds, self.semantic_item_embeds], dim=0)
-        sem_embeds_list = [seman_embeds]   # 语义交互图
+        sem_embeds_list = [seman_embeds]
 
         adj = self.adj
         semantic_adj = self.semantic_adj
 
-        # 双图并行学习
         for layer_idx in range(self.layer_num):
-            # 语义交互图传播
             sem_embeds = t.spmm(semantic_adj, sem_embeds_list[-1])
             sem_embeds_list.append(sem_embeds)
 
-        # 最终表示
         final_sem_embeds = sum(sem_embeds_list)
-        # 分离用户和物品嵌入
         sem_user_embeds = final_sem_embeds[:self.user_num]
         sem_item_embeds = final_sem_embeds[self.user_num:]
-        # 返回：行为交互图的用户/物品嵌入 + 语义交互图的用户/物品嵌入 + 行为交互嵌入
         return sem_user_embeds, sem_item_embeds
     
     def aug_forward(self, aug_edge_index=None, aug_edge_weight=None):
@@ -664,24 +590,11 @@ class COGCL_pro(BaseModel):
         return user_all_embeddings, item_all_embeddings
 
 
-    # def quantize(self, users, items, user_embeddings=None, item_embeddings=None):
-
-    #     if user_embeddings is None or item_embeddings is None:
-    #         user_embs = self.user_embedding(users)
-    #         item_embs = self.item_embedding(items)
-    #     else:
-    #         user_embs = user_embeddings[users]
-    #         item_embs = item_embeddings[items]
-        
-    #     user_vq_loss, _ = self.emb_quantize(user_embs, self.user_vq)
-    #     item_vq_loss, _ = self.emb_quantize(item_embs, self.item_vq)
-        
-    #     return user_vq_loss + item_vq_loss
 
 
     def quantize(self, users, items, user_embeddings=None, item_embeddings=None):
         if user_embeddings is None or item_embeddings is None:
-            user_embs = self.user_embedding[users]   # 索引张量
+            user_embs = self.user_embedding[users] 
             item_embs = self.item_embedding[items]
         else:
             user_embs = user_embeddings[users]
@@ -726,7 +639,6 @@ class COGCL_pro(BaseModel):
         sim_11 = torch.exp(sim_11 / self.cl_tau)
         sim_22 = torch.exp(sim_22 / self.cl_tau)
 
-
         loss_12 = -torch.log(
             sim_12.diag()
             / (sim_12.sum(1) + sim_11.sum(1) - sim_11.diag())
@@ -735,7 +647,6 @@ class COGCL_pro(BaseModel):
             sim_21.diag()
             / (sim_21.sum(1) + sim_22.sum(1) - sim_22.diag())
         )
-
 
         loss = 0.5 * (loss_12 + loss_21).mean()
 
@@ -746,10 +657,6 @@ class COGCL_pro(BaseModel):
         if self.restore_user_e is not None or self.restore_item_e is not None:
             self.restore_user_e, self.restore_item_e = None, None
 
-
-        # user = interaction[self.USER_ID]
-        # pos_item = interaction[self.ITEM_ID]
-        # neg_item = interaction[self.NEG_ITEM_ID]
 
         user, pos_item, neg_item = self._unpack_triplet(batch_data)
 
@@ -777,10 +684,12 @@ class COGCL_pro(BaseModel):
         sup_cl_loss *= self.sup_cl_weight
         unique_sem_user_emb, unique_sem_item_emb = sem_user_embeds[unique_user_idx], sem_item_embeds[unique_item_idx]
         sem_node_emb = t.cat((unique_sem_user_emb, unique_sem_item_emb), dim=0)
-        # sem_node_emb, node_emb
-        # sem_item_embeds, orig_item_embeds
-        sup_cl_user_loss = cal_sup_cl_loss(behavior_anc_embeds, sem_pos_embeds, sem_node_emb, self.sup_contrast_temperature)
-        sup_cl_item_loss = cal_sup_cl_loss(sem_anc_embeds, behavior_pos_embeds, node_emb, self.sup_contrast_temperature)
+     
+        beh_sem_emb = t.cat((unique_user_emb, unique_sem_item_emb), dim=0)
+        sem_beh_emb = t.cat((unique_sem_user_emb, unique_item_emb), dim=0)
+        sup_cl_user_loss = cal_sup_cl_loss(behavior_anc_embeds, sem_pos_embeds, beh_sem_emb, self.sup_contrast_temperature)
+        sup_cl_item_loss = cal_sup_cl_loss(sem_anc_embeds, behavior_pos_embeds, sem_beh_emb, self.sup_contrast_temperature)
+        
         full_sup_cl_loss = (sup_cl_user_loss + sup_cl_item_loss) * self.cv_sup_cl_weight
         embedding_contrast_loss = cal_infonce_loss(behavior_anc_embeds, sem_anc_embeds, sem_user_embeds, self.contrast_temperature) + \
                     cal_infonce_loss(behavior_pos_embeds, sem_pos_embeds, sem_pos_embeds, self.contrast_temperature) + \
@@ -793,17 +702,11 @@ class COGCL_pro(BaseModel):
         pos_embeddings = orig_item_embeds[pos_item]
         neg_embeddings = orig_item_embeds[neg_item]
 
-        # calculate BPR Loss
         pos_id_scores = torch.mul(u_embeddings, pos_embeddings).sum(dim=1)
         neg_id_scores = torch.mul(u_embeddings, neg_embeddings).sum(dim=1)
 
         mf_loss = self.BPRLoss(pos_id_scores, neg_id_scores)
 
-        # calculate regularization Loss
-        # u_ego_embeddings = self.user_embedding(user).view(-1, self.embedding_size)
-        # pos_ego_embeddings = self.item_embedding(pos_item).view(-1, self.embedding_size)
-        # neg_ego_embeddings = self.item_embedding(neg_item).view(-1, self.embedding_size)
-        # reg_loss = self.EmbLoss()
         reg_loss = self.EmbReg()
 
         user = torch.unique(user, sorted=True)
@@ -819,9 +722,6 @@ class COGCL_pro(BaseModel):
         cl_loss = self.calculate_cl_loss(u_x1, u_x2) + self.calculate_cl_loss(i_x1, i_x2)
 
         if self.sim_cl_weight > 0:
-            # aug_users = interaction[self.AUG_USER_ID]
-            # aug_items = interaction[self.AUG_ITEM_ID]
-
 
             aug_users, aug_items = self._get_aug_from_batch(batch_data, user, pos_item)
             u_x3 = orig_user_embeds[aug_users]
@@ -832,7 +732,6 @@ class COGCL_pro(BaseModel):
 
             sim_cl_loss = 0.5 * (sim_cl_loss_1 + sim_cl_loss_2)
         else:
-            # sim_cl_loss = torch.zeros(1).to(self.device)
             sim_cl_loss = torch.zeros(1).to().cuda()
 
         reg_loss = self.reg_weight * reg_loss
@@ -844,9 +743,6 @@ class COGCL_pro(BaseModel):
 
         losses = {'rec_loss': mf_loss, 'reg_loss': reg_loss, 'vq_loss': vq_loss, 'sim_cl_loss': sim_cl_loss, 'cl_loss': cl_loss, 'embedding_contrast_loss': embedding_contrast_loss, 'full_sup_cl_loss': full_sup_cl_loss, 'sup_cl_loss': sup_cl_loss}
 
-
-        # return (mf_loss, self.reg_weight * reg_loss, self.vq_loss_weight * vq_loss,
-        #         self.cl_weight * cl_loss, self.sim_cl_weight * sim_cl_loss)
 
         return loss, losses
 
@@ -1295,11 +1191,6 @@ class EMAVectorQuantizer(nn.Module):
             weights = self.laplace_smoothing(self.cluster_size, self.codebook_size, self.eps) * n
             embedding_normalized = self.embedding_avg / weights.unsqueeze(1)
             self.embedding.data.copy_(embedding_normalized)
-
-            # temp = self._tile(latent)
-            # temp = temp[torch.randperm(temp.size(0))][:self.codebook_size]
-            # usage = (self.cluster_size.view(self.codebook_size, 1) >= 1).float()
-            # self.embedding.data.mul_(usage).add_(temp * (1 - usage))
 
         # preserve gradients
         x_q = x + (x_q - x).detach()

@@ -15,35 +15,12 @@ init = nn.init.xavier_uniform_
 
 
 class LightGCN_pro(BaseModel):
-    """
-    Stage-2: Dual-graph learning + interaction modeling + contrastive learning
 
-    Design highlights:
-    - Build a semantic interaction graph based on Stage-1 semantic embeddings
-    - Perform graph learning in parallel on the original interaction graph and the semantic graph
-    - Model interaction patterns after each layer: user_emb + item_emb + MLP
-    - Dual contrastive learning: interaction representation alignment + embedding alignment
-    - Return user/item embeddings from both graphs and their interaction representations
-
-    Tunable hyperparameters:
-    - layer_num: number of layers
-    - embedding_size: output dimension
-    - semantic_topk: top-k neighbors when constructing the semantic graph
-    - interaction_dim: dimension of the interaction modeling MLP
-    - interaction_contrast_weight: weight for interaction contrastive learning
-    - emb_cl_weight: weight for embedding contrastive learning
-    - contrast_temperature: temperature for contrastive learning
-    - keep_rate: edge keep ratio for graph dropout
-    - reg_weight: regularization weight
-    - debug_log: enable verbose debug logs
-    - max_debug_steps: max debug prints
-    """
 
     def __init__(self, data_handler):
         super(LightGCN_pro, self).__init__(data_handler)
 
         self.data_handler = data_handler
-        
         self.adj = data_handler.torch_adj
         self.keep_rate = configs['model']['keep_rate']
         self.edge_dropper = SpAdjEdgeDrop()
@@ -66,7 +43,7 @@ class LightGCN_pro(BaseModel):
         self.max_debug_steps = int(self.hyper_config.get('max_debug_steps', 2))
         self._debug_count = 0
 
-        # Use the device from the config directly
+
         target_device = configs['device']
         self.usrprf_embeds = t.tensor(configs['usrprf_embeds']).float().to(target_device)
         self.itmprf_embeds = t.tensor(configs['itmprf_embeds']).float().to(target_device)
@@ -76,20 +53,17 @@ class LightGCN_pro(BaseModel):
         
         self.semantic_embedding_size = self.usrprf_embeds.shape[1]
 
-        # Initialize learnable embeddings
         self.user_embeds = nn.Parameter(init(t.empty(self.user_num, self.embedding_size)))
         self.item_embeds = nn.Parameter(init(t.empty(self.item_num, self.embedding_size)))
         
-        print(f"✓ Semantic embeddings and device embeddings are on device: {target_device}")
+        print(f"✓ Semantic embeddings and model embeddings are both on device: {target_device}")
 
-        # Try to load the precomputed semantic graph
         self._try_load_semantic_graph_mat()
-        
-        # Ensure semantic graph is on the correct target device
+
         target_device = configs['device']
         if self.semantic_adj.device != target_device:
             self.semantic_adj = self.semantic_adj.to(target_device)
-            print(f"✓ Semantic graph moved to target device: {target_device}")
+            print(f"✓ Semantic graph has been moved to the target device: {target_device}")
 
         self.semantic_mlps = nn.Sequential(
             nn.Linear(self.semantic_embedding_size, (self.embedding_size + self.semantic_embedding_size) // 2),
@@ -99,84 +73,86 @@ class LightGCN_pro(BaseModel):
 
         self._init_weight()
 
-    def _init_weight(self):
-        for m in self.semantic_mlps:
-            if isinstance(m, nn.Linear):
-                init(m.weight)
+        def _init_weight(self):
+            for m in self.semantic_mlps:
+                if isinstance(m, nn.Linear):
+                    init(m.weight)
 
-    def _try_load_semantic_graph_mat(self):
-        """Try to load the precomputed semantic interaction graph (adjacency matrix)."""
-        try:
-            precomputed_path = configs['sem_graph_path']
-            
-            if os.path.exists(precomputed_path):
-                trn_mat = load_one_mat(precomputed_path)
-                self.semantic_adj = make_torch_adj(trn_mat)
-                if self.semantic_adj.device != configs['device']:
-                    if self._debug_count < 3:
-                        print(f"⚠️ Device mismatch, moving semantic graph from {self.semantic_adj.device} to {configs['device']}")
-                    self.semantic_adj = self.semantic_adj.to(configs['device'])
 
-        except Exception as e:
-            print(f"⚠️ Failed to load precomputed semantic graph: {e}")
-            print("  Falling back to a dynamically constructed semantic graph")
+        def _try_load_semantic_graph_mat(self):
+            """Try to load the precomputed semantic interaction graph using an adjacency matrix."""
+            try:
+                precomputed_path = configs['sem_graph_path']
 
-    def _propagate(self, adj, embeds):
-        """Graph propagation."""
-        try:
+                if os.path.exists(precomputed_path):
+                    trn_mat = load_one_mat(precomputed_path)
+                    self.semantic_adj = make_torch_adj(trn_mat)
+                    if self.semantic_adj.device != configs['device']:
+                        if self._debug_count < 3:
+                            print(f"⚠️ Device mismatch detected. Moving semantic graph from {self.semantic_adj.device} to {configs['device']}")
+                        self.semantic_adj = self.semantic_adj.to(configs['device'])
+
+            except Exception as e:
+                print(f"⚠️ Failed to load the precomputed semantic graph: {e}")
+                print("  Continue using the dynamically constructed semantic graph")
+
+        def _propagate(self, adj, embeds):
+            """Graph propagation."""
+            try:
+                if adj.device != embeds.device:
+                    print(f"⚠️ Device mismatch before propagation: adj={adj.device}, embeds={embeds.device}")
+                    adj = adj.to(embeds.device)
+
+                if hasattr(adj, '_indices'):
+                    indices = adj._indices()
+                    if indices.numel() > 0:
+                        max_row = indices[0].max().item()
+                        max_col = indices[1].max().item()
+                        if max_row >= embeds.size(0) or max_col >= embeds.size(0):
+                            print(f"⚠️ Adjacency matrix index out of range: max_row={max_row}, max_col={max_col}, embeds_size={embeds.size(0)}")
+                            return embeds
+
+                return t.spmm(adj, embeds)
+            except Exception as e:
+                print(f"⚠️ Graph propagation failed: {e}")
+                return embeds
+
+        @staticmethod
+        def _avg_l2_norm(x: t.Tensor):
+            if x is None:
+                return float('nan')
+            with t.no_grad():
+                return t.norm(x, p=2, dim=1).mean().item()
+
+        def forward(self, adj=None, keep_rate=1.0, batch_data=None):
+            if adj is None:
+                adj = self.adj
+                semantic_adj = self.semantic_adj
+            if not self.is_training and self.final_embeds is not None:
+                return self.final_embeds[:self.user_num], self.final_embeds[self.user_num:]
+
+            embeds = t.cat([self.user_embeds, self.item_embeds], dim=0)
+            orig_embeds_list = [embeds]
+
+            seman_embeds = t.cat([self.semantic_user_embeds, self.semantic_item_embeds], dim=0)
+            sem_embeds_list = [seman_embeds]
+
+            if self.is_training:
+                adj = self.edge_dropper(adj, keep_rate)
+                semantic_adj = self.edge_dropper(self.semantic_adj, keep_rate)
+            else:
+                adj = self.adj
+                semantic_adj = self.semantic_adj
+
+            if semantic_adj.device != embeds.device:
+                if self._debug_count < 3:
+                    print(f"⚠️ Device mismatch detected. Moving semantic graph from {semantic_adj.device} to {embeds.device}")
+                semantic_adj = semantic_adj.to(embeds.device)
+
             if adj.device != embeds.device:
-                print(f"⚠️ Device mismatch before propagation: adj={adj.device}, embeds={embeds.device}")
+                if self._debug_count < 3:
+                    print(f"⚠️ Original graph device mismatch detected. Moving from {adj.device} to {embeds.device}")
                 adj = adj.to(embeds.device)
-            
-            if hasattr(adj, '_indices'):
-                indices = adj._indices()
-                if indices.numel() > 0:
-                    max_row = indices[0].max().item()
-                    max_col = indices[1].max().item()
-                    if max_row >= embeds.size(0) or max_col >= embeds.size(0):
-                        print(f"⚠️ Adjacency indices out of range: max_row={max_row}, max_col={max_col}, embeds_size={embeds.size(0)}")
-                        return embeds
-            return t.spmm(adj, embeds)
-        except Exception as e:
-            print(f"⚠️ Graph propagation failed: {e}")
-            return embeds
-
-    @staticmethod
-    def _avg_l2_norm(x: t.Tensor):
-        if x is None:
-            return float('nan')
-        with t.no_grad():
-            return t.norm(x, p=2, dim=1).mean().item()
-
-    def forward(self, adj=None, keep_rate=1.0, batch_data=None):
-        if adj is None:
-            adj = self.adj
-            semantic_adj = self.semantic_adj
-        if not self.is_training and self.final_embeds is not None:
-            return self.final_embeds[:self.user_num], self.final_embeds[self.user_num:]
-
-        embeds = t.cat([self.user_embeds, self.item_embeds], dim=0)
-        orig_embeds_list = [embeds]
-
-        seman_embeds = t.cat([self.semantic_user_embeds, self.semantic_item_embeds], dim=0)
-        sem_embeds_list = [seman_embeds]
-
-        if self.is_training:
-            adj = self.edge_dropper(adj, keep_rate)
-            semantic_adj = self.edge_dropper(self.semantic_adj, keep_rate)
-        else:
-            adj = self.adj
-            semantic_adj = self.semantic_adj
-        
-        if semantic_adj.device != embeds.device:
-            if self._debug_count < 3:
-                print(f"⚠️ Device mismatch, moving semantic graph from {semantic_adj.device} to {embeds.device}")
-            semantic_adj = semantic_adj.to(embeds.device)
-        
-        if adj.device != embeds.device:
-            if self._debug_count < 3:
-                print(f"⚠️ Original graph device mismatch, moving from {adj.device} to {embeds.device}")
-            adj = adj.to(embeds.device)
 
         for layer_idx in range(self.layer_num):
             orig_embeds = self._propagate(adj, orig_embeds_list[-1])
@@ -184,7 +160,7 @@ class LightGCN_pro(BaseModel):
             
             sem_embeds = self._propagate(semantic_adj, sem_embeds_list[-1])
             sem_embeds_list.append(sem_embeds)
-
+            
         final_orig_embeds = sum(orig_embeds_list)
         final_sem_embeds = sum(sem_embeds_list)
         
@@ -212,7 +188,6 @@ class LightGCN_pro(BaseModel):
         sem_user_embeds, sem_item_embeds = F.normalize(sem_user_embeds, dim=-1), F.normalize(sem_item_embeds, dim=-1)
         
         ancs, poss, negs = batch_data
-
         behavior_anc_embeds = orig_user_embeds[ancs]
         behavior_pos_embeds = orig_item_embeds[poss]
         behavior_neg_embeds = orig_item_embeds[negs]
@@ -230,14 +205,15 @@ class LightGCN_pro(BaseModel):
         sup_cl_loss *= self.sup_cl_weight
         unique_sem_user_emb, unique_sem_item_emb = sem_user_embeds[unique_user_idx], sem_item_embeds[unique_item_idx]
         sem_node_emb = t.cat((unique_sem_user_emb, unique_sem_item_emb), dim=0)
-
-        sup_cl_user_loss = cal_sup_cl_loss(behavior_anc_embeds, sem_pos_embeds, sem_node_emb, self.sup_contrast_temperature)
-        sup_cl_item_loss = cal_sup_cl_loss(sem_anc_embeds, behavior_pos_embeds, node_emb, self.sup_contrast_temperature)
+       
+        beh_sem_emb = t.cat((unique_user_emb, unique_sem_item_emb), dim=0)
+        sem_beh_emb = t.cat((unique_sem_user_emb, unique_item_emb), dim=0)
+        sup_cl_user_loss = cal_sup_cl_loss(behavior_anc_embeds, sem_pos_embeds, beh_sem_emb, self.sup_contrast_temperature)
+        sup_cl_item_loss = cal_sup_cl_loss(sem_anc_embeds, behavior_pos_embeds, sem_beh_emb, self.sup_contrast_temperature)
 
         full_sup_cl_loss = (sup_cl_user_loss + sup_cl_item_loss) * self.cv_sup_cl_weight
 
         bpr_loss = cal_bpr_loss(behavior_anc_embeds, behavior_pos_embeds, behavior_neg_embeds) / behavior_anc_embeds.shape[0]
-        # Regularization loss
         reg_loss = self.reg_weight * reg_params(self)
         embedding_contrast_loss = cal_infonce_loss(behavior_anc_embeds, sem_anc_embeds, sem_user_embeds, self.contrast_temperature) + \
                                   cal_infonce_loss(behavior_pos_embeds, sem_pos_embeds, sem_pos_embeds, self.contrast_temperature) + \
@@ -245,6 +221,7 @@ class LightGCN_pro(BaseModel):
         embedding_contrast_loss /= behavior_anc_embeds.shape[0]
         embedding_contrast_loss *= self.emb_cl_weight
 
+        
         loss = bpr_loss + reg_loss + sup_cl_loss + embedding_contrast_loss + full_sup_cl_loss
         losses = {
             'bpr_loss': bpr_loss, 
@@ -261,7 +238,6 @@ class LightGCN_pro(BaseModel):
         self.is_training = False
         pck_users, train_mask = batch_data
         pck_users = pck_users.long()
-        
         pck_user_embeds = orig_user_embeds[pck_users]
         full_preds = pck_user_embeds @ orig_item_embeds.T
         full_preds = self._mask_predict(full_preds, train_mask)

@@ -15,7 +15,7 @@ class GCNLayer(nn.Module):
         self.W = nn.Parameter(init(t.empty(latdim, latdim)))
 
     def forward(self, adj, embeds):
-        return t.spmm(adj, embeds)  # @ self.W (Performs better without W)
+        return t.spmm(adj, embeds)
 
 class GCCF_pro(BaseModel):
     def __init__(self, data_handler):
@@ -33,17 +33,19 @@ class GCCF_pro(BaseModel):
         self.is_training = True
 
         self.semantic_topk = int(self.hyper_config.get('semantic_topk', 10))
+
         self.sup_cl_weight = float(self.hyper_config.get('sup_cl_weight', 0.1))
+
         self.cv_sup_cl_weight = float(self.hyper_config.get('cv_sup_cl_weight', 0.1))
+
         self.emb_cl_weight = float(self.hyper_config.get('emb_cl_weight', 0.0))
+
         self.contrast_temperature = float(self.hyper_config.get('contrast_temperature', 0.1))
         self.sup_contrast_temperature = float(self.hyper_config.get('sup_contrast_temperature', 0.25))
 
         self.debug_log = bool(self.hyper_config.get('debug_log', False))
         self.max_debug_steps = int(self.hyper_config.get('max_debug_steps', 2))
         self._debug_count = 0
-
-        # Use the device from config directly
         target_device = configs['device']
         self.usrprf_embeds = t.tensor(configs['usrprf_embeds']).float().cuda()
         self.itmprf_embeds = t.tensor(configs['itmprf_embeds']).float().cuda()
@@ -52,56 +54,52 @@ class GCCF_pro(BaseModel):
         self.semantic_embedding_size = self.usrprf_embeds.shape[1]
 
         self.semantic_mlps = nn.Sequential(
-            nn.Linear(self.semantic_embedding_size, (self.embedding_size + self.semantic_embedding_size) // 2),
-            nn.LeakyReLU(),
-            nn.Linear((self.embedding_size + self.semantic_embedding_size) // 2, self.embedding_size * 3)
+                nn.Linear(self.semantic_embedding_size, (self.embedding_size + self.semantic_embedding_size) // 2),
+                nn.LeakyReLU(),
+                nn.Linear((self.embedding_size + self.semantic_embedding_size) // 2, self.embedding_size * 3)
         )
 
-        print(f"✓ Semantic embeddings and device embeddings are on device: {target_device}")
+        print(f"✓ Semantic embeddings and model embeddings are both on device: {target_device}")
 
-        # Try to load the precomputed semantic graph Laplacian matrix
         self._try_load_semantic_graph_mat()
-        
-        # Ensure the semantic graph is on the correct device (use target device from config)
+
         target_device = configs['device']
         if self.semantic_adj.device != target_device:
             self.semantic_adj = self.semantic_adj.to(target_device)
-            print(f"✓ Semantic graph moved to target device: {target_device}")
+            print(f"✓ Semantic graph has been moved to the target device: {target_device}")
 
         self.interaction_user_indices = None
         self.interaction_item_indices = None
 
         self._init_weight()
 
-    def _init_weight(self):
-        for m in self.semantic_mlps:
-            if isinstance(m, nn.Linear):
-                init(m.weight)
+        def _init_weight(self):
+            for m in self.semantic_mlps:
+                if isinstance(m, nn.Linear):
+                    init(m.weight)
 
-    def _try_load_semantic_graph_mat(self):
-        """Try to load the precomputed semantic interaction graph using an adjacency matrix."""
-        try:
-            precomputed_path = configs['sem_graph_path']
-            
-            if os.path.exists(precomputed_path):
-                # Load and normalize the semantic graph using DataHandlerGeneralCF utilities
-                trn_mat = load_one_mat(precomputed_path)
-                self.semantic_adj = make_torch_adj(trn_mat)
-                print(f"✓ Successfully loaded precomputed semantic graph, shape: {self.semantic_adj.size()}")
-                print(f"  Number of non-zeros: {self.semantic_adj._nnz()}")
-                print(f"  Sparsity: {1.0 - (self.semantic_adj._nnz() / (self.semantic_adj.size(0) * self.semantic_adj.size(1))):.4f}")
-                print(f"  Current device: {self.semantic_adj.device}")
-                print(f"  Target device: {configs['device']}")
+        def _try_load_semantic_graph_mat(self):
+            """Try to load the precomputed semantic interaction graph using an adjacency matrix."""
+            try:
+                precomputed_path = configs['sem_graph_path']
 
-                # Ensure the semantic graph is on the correct device
-                if self.semantic_adj.device != configs['device']:
-                    if self._debug_count < 3:  # Warn only for the first few times
-                        print(f"⚠️ Device mismatch, moving semantic graph from {self.semantic_adj.device} to {configs['device']}")
-                    self.semantic_adj = self.semantic_adj.to(configs['device'])
+                if os.path.exists(precomputed_path):
+                    trn_mat = load_one_mat(precomputed_path)
+                    self.semantic_adj = make_torch_adj(trn_mat)
+                    print(f"✓ Successfully loaded the precomputed semantic graph. Shape: {self.semantic_adj.size()}")
+                    print(f"  Number of non-zero elements: {self.semantic_adj._nnz()}")
+                    print(f"  Sparsity: {1.0 - (self.semantic_adj._nnz() / (self.semantic_adj.size(0) * self.semantic_adj.size(1))):.4f}")
+                    print(f"  Current device: {self.semantic_adj.device}")
+                    print(f"  Target device: {configs['device']}")
 
-        except Exception as e:
-            print(f"⚠️ Failed to load precomputed semantic graph: {e}")
-            print("  Falling back to dynamically constructed semantic graph")
+                    if self.semantic_adj.device != configs['device']:
+                        if self._debug_count < 3:
+                            print(f"⚠️ Device mismatch detected. Moving semantic graph from {self.semantic_adj.device} to {configs['device']}")
+                        self.semantic_adj = self.semantic_adj.to(configs['device'])
+
+            except Exception as e:
+                print(f"⚠️ Failed to load the precomputed semantic graph: {e}")
+                print("  Continue using the dynamically constructed semantic graph")
     
     def forward(self, adj=None):
         if adj is None:
@@ -123,23 +121,20 @@ class GCCF_pro(BaseModel):
             semantic_adj = self.semantic_adj
 
         seman_embeds = t.cat([self.semantic_user_embeds, self.semantic_item_embeds], dim=0)
-        sem_embeds_list = [seman_embeds]   # Semantic interaction graph
+        sem_embeds_list = [seman_embeds]
 
         adj = self.adj
         semantic_adj = self.semantic_adj
 
-        # Dual-graph parallel learning
         for layer_idx in range(self.layer_num):
-            # Propagation on the semantic interaction graph
             sem_embeds = t.spmm(semantic_adj, sem_embeds_list[-1])
             sem_embeds_list.append(sem_embeds)
 
-        # Final representation
+
         final_sem_embeds = sum(sem_embeds_list)
-        # Split user and item embeddings
+
         sem_user_embeds = final_sem_embeds[:self.user_num]
         sem_item_embeds = final_sem_embeds[self.user_num:]
-        # Return: behavior-graph user/item embeds + semantic-graph user/item embeds
         return sem_user_embeds, sem_item_embeds
     
     def cal_loss(self, batch_data):
@@ -168,12 +163,13 @@ class GCCF_pro(BaseModel):
         sup_cl_loss *= self.sup_cl_weight
         unique_sem_user_emb, unique_sem_item_emb = sem_user_embeds[unique_user_idx], sem_item_embeds[unique_item_idx]
         sem_node_emb = t.cat((unique_sem_user_emb, unique_sem_item_emb), dim=0)
-        # sem_node_emb, node_emb
-        # sem_item_embeds, orig_item_embeds
-        # print(f"behavior_anc_embeds.shape: {behavior_anc_embeds.shape}, sem_pos_embeds.shape: {sem_pos_embeds.shape}")
-        sup_cl_user_loss = cal_sup_cl_loss(behavior_anc_embeds, sem_pos_embeds, sem_node_emb, self.sup_contrast_temperature)
-        sup_cl_item_loss = cal_sup_cl_loss(sem_anc_embeds, behavior_pos_embeds, node_emb, self.sup_contrast_temperature)
+
+        beh_sem_emb = t.cat((unique_user_emb, unique_sem_item_emb), dim=0)
+        sem_beh_emb = t.cat((unique_sem_user_emb, unique_item_emb), dim=0)
+        sup_cl_user_loss = cal_sup_cl_loss(behavior_anc_embeds, sem_pos_embeds, beh_sem_emb, self.sup_contrast_temperature)
+        sup_cl_item_loss = cal_sup_cl_loss(sem_anc_embeds, behavior_pos_embeds, sem_beh_emb, self.sup_contrast_temperature)
         full_sup_cl_loss = (sup_cl_user_loss + sup_cl_item_loss) * self.cv_sup_cl_weight
+
         embedding_contrast_loss = cal_infonce_loss(behavior_anc_embeds, sem_anc_embeds, sem_user_embeds, self.contrast_temperature) + \
                     cal_infonce_loss(behavior_pos_embeds, sem_pos_embeds, sem_pos_embeds, self.contrast_temperature) + \
                     cal_infonce_loss(behavior_neg_embeds, sem_neg_embeds, sem_neg_embeds, self.contrast_temperature)
