@@ -2,11 +2,12 @@
 
 <p align="left">
   <a href="figs/ILRec.png">
-    <img src="figs/ILRec.png" alt="ILRec Framework" width="820">
+    <img src="figs/freamwork.png" alt="ILRec Framework" width="820">
   </a>
   <br>
   <sub>Figure: ILRec framework.</sub>
 </p>
+
 
 ---
 
